@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libgbm1
+
+      - name: Install python deps
+        run: python -m pip install --upgrade pip pypdf
+
+      - name: Install node deps
+        run: npm ci
+
+      - name: Run unit/integration tests
+        run: npm test
+
+      - name: Run electron smoke e2e
+        run: xvfb-run -a npm run e2e
+
+      - name: Build package (dir)
+        run: npm run build

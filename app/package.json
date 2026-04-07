@@ -1,0 +1,42 @@
+{
+  "name": "mani-pdf-local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first PDF desktop app foundation",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "python -m unittest discover -s python/tests -p \"test_*.py\"",
+    "e2e": "playwright test",
+    "build": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2",
+    "electron": "^36.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.manipdf.local",
+    "productName": "Mani PDF Local",
+    "files": [
+      "src/**/*",
+      "python/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build-resources"
+    },
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}

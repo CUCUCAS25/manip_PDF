@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mani PDF Local</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Mani PDF Local</h1>
+      <div class="actions">
+        <button id="openBtn">Ouvrir PDF</button>
+        <input id="fileInput" type="file" accept="application/pdf" hidden />
+        <button id="addTextBtn">+ Texte</button>
+        <button id="addRectBtn">+ Rectangle</button>
+        <button id="addImageBtn">+ Image</button>
+        <input id="imageInput" type="file" accept="image/*" hidden />
+        <button id="deleteSelectedBtn">Supprimer selection</button>
+        <button id="undoBtn">Undo</button>
+        <button id="redoBtn">Redo</button>
+        <label>W <input id="propWidth" type="number" min="20" value="180" /></label>
+        <label>H <input id="propHeight" type="number" min="20" value="120" /></label>
+        <label>R <input id="propRotation" type="number" min="0" max="360" value="0" /></label>
+        <label>Op <input id="propOpacity" type="number" min="0" max="100" value="100" /></label>
+        <button id="applyPropsBtn">Appliquer</button>
+        <button id="mergeBtn">Fusion</button>
+        <button id="splitBtn">Split</button>
+        <button id="compressBtn">Compression</button>
+        <button id="protectBtn">Protect</button>
+        <button id="unprotectBtn">Unprotect</button>
+        <button id="prevBtn">Page -</button>
+        <span id="pageInfo">Aucun PDF</span>
+        <button id="nextBtn">Page +</button>
+        <button id="saveSessionBtn">Sauver session</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="tabs" id="tabs"></section>
+      <section id="jobsPanel"></section>
+      <section id="sensitivePanel"></section>
+      <section class="viewer">
+        <embed id="pdfViewer" type="application/pdf" />
+        <div id="annotationLayer"></div>
+      </section>
+    </main>
+
+    <footer id="statusBar">Pret</footer>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

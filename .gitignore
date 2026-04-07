@@ -1,0 +1,10 @@
+app/node_modules/
+app/dist/
+app/test-results/
+app/playwright-report/
+.cursor/
+_bmad-output/
+*.log
+*.tmp
+Thumbs.db
+.DS_Store
