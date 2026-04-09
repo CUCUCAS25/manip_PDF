@@ -145,6 +145,35 @@
       </div>
     </footer>
     <div id="toolTip" class="tooltip hidden" role="tooltip"></div>
+    <div id="splitWorkspaceOverlay" class="split-workspace-overlay hidden" aria-hidden="true">
+      <div
+        id="splitWorkspace"
+        class="split-workspace"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="splitWorkspaceTitle"
+        tabindex="-1"
+      >
+        <div class="split-workspace-header">
+          <h2 id="splitWorkspaceTitle">Split — répartition des pages</h2>
+          <button type="button" id="splitWorkspaceCloseBtn" class="split-workspace-close" aria-label="Fermer">
+            ✖
+          </button>
+        </div>
+        <p class="split-workspace-hint">
+          Miniatures par page. Glissez entre les groupes (Shift / Ctrl pour la sélection). Valider pour créer un PDF par
+          groupe. Brouillon enregistré automatiquement.
+        </p>
+        <div id="splitWorkspaceScroll" class="split-workspace-scroll">
+          <div id="splitWorkspaceGroups" class="split-workspace-groups"></div>
+        </div>
+        <div class="split-workspace-footer">
+          <button type="button" id="splitWorkspaceAddGroupBtn">+ Groupe</button>
+          <button type="button" id="splitWorkspaceValidateBtn" class="split-workspace-validate">Valider</button>
+        </div>
+      </div>
+    </div>
+
     <div id="shapeModal" class="shape-modal hidden" role="dialog" aria-modal="true" aria-label="Choix de forme">
       <div class="shape-modal-content">
         <div class="shape-modal-header">

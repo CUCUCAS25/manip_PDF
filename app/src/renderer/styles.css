@@ -622,6 +622,8 @@ body.dnd-active #annotationLayer {
   border: 1px dashed transparent;
   user-select: none;
   cursor: move;
+  /* Aligne la rotation CSS sur le modèle x,y,w,h (coin haut-gauche) pour le redimensionnement. */
+  transform-origin: 0 0;
 }
 
 .annotation.selected {
@@ -1178,4 +1180,237 @@ footer {
 .shape-grid button:hover {
   background: #eaf4ff;
   border-color: #8bb7da;
+}
+
+/* --- Split : répartition des pages par groupes --- */
+.split-workspace-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 15, 20, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.split-workspace-overlay.hidden {
+  display: none;
+}
+
+.split-workspace {
+  width: min(920px, 100%);
+  max-height: min(88vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background: #f6f7f9;
+  color: #1a1a1a;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+  border: 1px solid #c8ccd4;
+}
+
+.split-workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #d8dde6;
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+}
+
+.split-workspace-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 650;
+}
+
+.split-workspace-close {
+  border: none;
+  background: transparent;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.split-workspace-close:hover {
+  background: #e8ecf4;
+}
+
+.split-workspace-hint {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  color: #3d4556;
+  line-height: 1.45;
+  background: #eef1f7;
+  border-bottom: 1px solid #d8dde6;
+}
+
+.split-workspace-scroll {
+  flex: 1;
+  min-height: 200px;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.split-workspace-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.split-group {
+  background: #fff;
+  border: 1px solid #cfd6e4;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.split-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f0f3fa;
+  border-bottom: 1px solid #dfe5f0;
+}
+
+.split-group-header label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #2a3142;
+}
+
+.split-group-name {
+  flex: 1;
+  min-width: 120px;
+  padding: 6px 10px;
+  border: 1px solid #b8c0d0;
+  border-radius: 6px;
+  font-size: 0.92rem;
+}
+
+.split-group-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  align-content: flex-start;
+  min-height: 96px;
+  padding: 12px;
+  background: #fafbfd;
+  transition: background 0.15s ease;
+}
+
+.split-group-body.split-drop-hover {
+  background: #e8f2ff;
+  outline: 2px dashed #007acc;
+  outline-offset: -2px;
+}
+
+.split-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 88px;
+  cursor: grab;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.split-thumb:hover {
+  border-color: #9dbfe0;
+}
+
+.split-thumb.split-thumb-selected {
+  border-color: #007acc;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.25);
+}
+
+.split-thumb-canvas-wrap {
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+  background: #e4e7ee;
+}
+
+.split-thumb-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: top;
+}
+
+.split-thumb-meta {
+  padding: 4px 6px 6px;
+  font-size: 11px;
+  text-align: center;
+  color: #3d4556;
+  font-weight: 600;
+}
+
+.split-workspace-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid #d8dde6;
+  background: #fff;
+  border-radius: 0 0 12px 12px;
+}
+
+.split-workspace-footer button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #b8c0d0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.split-workspace-footer button:hover {
+  background: #eef1f7;
+}
+
+.split-workspace-validate {
+  background: #007acc !important;
+  color: #fff !important;
+  border-color: #0066aa !important;
+  font-weight: 600;
+}
+
+.split-workspace-validate:hover {
+  filter: brightness(1.05);
+}
+
+.split-drag-ghost {
+  position: fixed;
+  z-index: 10002;
+  pointer-events: none;
+  width: 88px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #007acc;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0.95;
+}
+
+.split-drag-ghost canvas {
+  display: block;
+  width: 100%;
+  height: auto;
 }

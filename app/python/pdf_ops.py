@@ -524,6 +524,34 @@ def split_pdf(input_path: str, from_page: int, to_page: int, output_path: str) -
     return output_path
 
 
+def split_pdf_groups(input_path: str, groups: list[dict]) -> list[str]:
+    """
+    Exporte plusieurs PDF depuis un même source : chaque entrée contient
+    output_path et page_indices (numéros de page 1-based, dans l'ordre souhaité).
+    Les groupes sans pages ou chemins vides sont ignorés.
+    """
+    PdfReader, PdfWriter = _require_pypdf()
+    reader = PdfReader(input_path)
+    max_page = len(reader.pages)
+    outputs: list[str] = []
+    for g in groups:
+        out_path = (g.get("output_path") or "").strip()
+        indices = g.get("page_indices") or []
+        if not out_path or not indices:
+            continue
+        writer = PdfWriter()
+        for p in indices:
+            idx = int(p) - 1
+            if 0 <= idx < max_page:
+                writer.add_page(reader.pages[idx])
+        if len(writer.pages) == 0:
+            continue
+        with open(out_path, "wb") as f:
+            writer.write(f)
+        outputs.append(out_path)
+    return outputs
+
+
 def compress_pdf(input_path: str, output_path: str) -> str:
     PdfReader, PdfWriter = _require_pypdf()
     reader = PdfReader(input_path)

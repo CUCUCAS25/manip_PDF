@@ -22,6 +22,11 @@ const applyPropsBtn = document.getElementById("applyPropsBtn");
 const applyBgBtn = document.getElementById("applyBgBtn");
 const mergeBtn = document.getElementById("mergeBtn");
 const splitBtn = document.getElementById("splitBtn");
+const splitWorkspaceOverlay = document.getElementById("splitWorkspaceOverlay");
+const splitWorkspaceCloseBtn = document.getElementById("splitWorkspaceCloseBtn");
+const splitWorkspaceGroups = document.getElementById("splitWorkspaceGroups");
+const splitWorkspaceAddGroupBtn = document.getElementById("splitWorkspaceAddGroupBtn");
+const splitWorkspaceValidateBtn = document.getElementById("splitWorkspaceValidateBtn");
 const compressBtn = document.getElementById("compressBtn");
 const protectBtn = document.getElementById("protectBtn");
 const unprotectBtn = document.getElementById("unprotectBtn");
@@ -47,6 +52,18 @@ const propBgColorLabel = document.getElementById("propBgColorLabel");
 let pdfCanvas = null;
 let annotationLayer = null;
 let dropOverlay = null;
+
+/** @type {{ tabPath: string, pageCount: number, groups: { id: string, name: string, pages: number[] }[], nextGroupId: number, selected: Set<number>, anchorPage: number | null } | null} */
+let splitWorkspaceState = null;
+let splitAutosaveTimer = null;
+/** @type {{ page: number, groupId: string, startX: number, startY: number, dragging: boolean, didDrag: boolean, noDrag: boolean, shift: boolean, ctrl: boolean } | null} */
+let splitPointer = null;
+let splitDragGhost = null;
+/** @type {number[] | null} */
+let splitDragPages = null;
+let splitDragOffsetX = 44;
+let splitDragOffsetY = 56;
+let splitDropHoverEl = null;
 const jobsPanel = document.getElementById("jobsPanel");
 const sensitivePanel = document.getElementById("sensitivePanel");
 const toolTip = document.getElementById("toolTip");
@@ -2139,6 +2156,495 @@ function buildDefaultOutputPath(basePath, suffix) {
   return `${basePath.slice(0, dot)}-${suffix}${basePath.slice(dot)}`;
 }
 
+function splitWorkspaceDraftKey(pdfPath) {
+  return `maniSplitDraft:${pdfPath}`;
+}
+
+function sanitizeSplitBaseName(name) {
+  const s = String(name || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim();
+  return s || "groupe";
+}
+
+function createSplitWorkspaceState(tab) {
+  const n = Math.max(1, Number(tab.pageCount) || 1);
+  const allPages = Array.from({ length: n }, (_, i) => i + 1);
+  return {
+    tabPath: tab.path,
+    pageCount: n,
+    groups: [
+      { id: "g1", name: "groupe 1", pages: [...allPages] },
+      { id: "g2", name: "groupe 2", pages: [] }
+    ],
+    nextGroupId: 3,
+    selected: new Set(),
+    anchorPage: null
+  };
+}
+
+function normalizeSplitState(st, tab) {
+  const n = Math.max(1, Number(tab.pageCount) || 1);
+  const seen = new Set();
+  for (const g of st.groups) {
+    g.pages = g.pages.map((p) => Number(p)).filter((p) => Number.isFinite(p) && p >= 1 && p <= n);
+    g.pages = g.pages.filter((p) => {
+      if (seen.has(p)) return false;
+      seen.add(p);
+      return true;
+    });
+  }
+  const missing = [];
+  for (let p = 1; p <= n; p++) {
+    if (!seen.has(p)) missing.push(p);
+  }
+  if (missing.length && st.groups.length) {
+    st.groups[0].pages.push(...missing);
+    st.groups[0].pages.sort((a, b) => a - b);
+  }
+}
+
+function loadSplitWorkspaceDraft(tab) {
+  try {
+    const raw = localStorage.getItem(splitWorkspaceDraftKey(tab.path));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.tabPath !== tab.path) return null;
+    const n = Math.max(1, Number(tab.pageCount) || 1);
+    if (Number(data.pageCount) !== n) return null;
+    const groups = Array.isArray(data.groups)
+      ? data.groups.map((g, i) => ({
+          id: typeof g.id === "string" ? g.id : `g${i + 1}`,
+          name: typeof g.name === "string" ? g.name : `groupe ${i + 1}`,
+          pages: Array.isArray(g.pages) ? g.pages.map((p) => Number(p)) : []
+        }))
+      : [];
+    if (groups.length < 2) return null;
+    const st = {
+      tabPath: tab.path,
+      pageCount: n,
+      groups,
+      nextGroupId: Math.max(3, Number(data.nextGroupId) || 3),
+      selected: new Set(),
+      anchorPage: null
+    };
+    normalizeSplitState(st, tab);
+    return st;
+  } catch {
+    return null;
+  }
+}
+
+function scheduleSplitWorkspaceAutosave() {
+  if (!splitWorkspaceState) return;
+  try {
+    clearTimeout(splitAutosaveTimer);
+  } catch {
+    /* ignore */
+  }
+  splitAutosaveTimer = setTimeout(() => {
+    try {
+      const st = splitWorkspaceState;
+      if (!st) return;
+      const payload = {
+        tabPath: st.tabPath,
+        pageCount: st.pageCount,
+        groups: st.groups.map((g) => ({
+          id: g.id,
+          name: g.name,
+          pages: [...g.pages]
+        })),
+        nextGroupId: st.nextGroupId
+      };
+      localStorage.setItem(splitWorkspaceDraftKey(st.tabPath), JSON.stringify(payload));
+    } catch {
+      /* ignore */
+    }
+  }, 320);
+}
+
+function buildSplitThumbCanvas(pageNum) {
+  const pageNode = pagesContainer?.querySelector?.(`.pdf-page[data-page="${pageNum}"]`);
+  const srcCanvas = pageNode?.querySelector?.("canvas.pdf-canvas");
+  if (!srcCanvas) return null;
+  const targetW = 88;
+  const ratio = srcCanvas.width > 0 ? targetW / srcCanvas.width : 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(10, Math.floor(srcCanvas.width * ratio));
+  canvas.height = Math.max(10, Math.floor(srcCanvas.height * ratio));
+  const ctx = canvas.getContext("2d");
+  try {
+    ctx.drawImage(srcCanvas, 0, 0, canvas.width, canvas.height);
+  } catch {
+    /* ignore */
+  }
+  return canvas;
+}
+
+function getOrderedPagesFromList(pageNums) {
+  const st = splitWorkspaceState;
+  if (!st) return [];
+  const set = new Set(pageNums);
+  const out = [];
+  for (const g of st.groups) {
+    for (const p of g.pages) {
+      if (set.has(p)) out.push(p);
+    }
+  }
+  return out;
+}
+
+function getOrderedSelectedPages() {
+  return getOrderedPagesFromList([...splitWorkspaceState.selected]);
+}
+
+function findGroupContainingPage(page) {
+  const st = splitWorkspaceState;
+  if (!st) return null;
+  return st.groups.find((g) => g.pages.includes(page)) || null;
+}
+
+function applySplitShiftRange(groupId, pageA, pageB) {
+  const st = splitWorkspaceState;
+  const g = st.groups.find((x) => x.id === groupId);
+  if (!g) return;
+  const ia = g.pages.indexOf(pageA);
+  const ib = g.pages.indexOf(pageB);
+  if (ia < 0 || ib < 0) return;
+  const lo = Math.min(ia, ib);
+  const hi = Math.max(ia, ib);
+  st.selected.clear();
+  for (let i = lo; i <= hi; i++) st.selected.add(g.pages[i]);
+}
+
+function handleSplitThumbClick(page, groupId, ev) {
+  const st = splitWorkspaceState;
+  if (!st) return;
+  if (ev.shiftKey) {
+    if (st.anchorPage != null) {
+      const ag = findGroupContainingPage(st.anchorPage);
+      if (ag && ag.id === groupId) {
+        applySplitShiftRange(groupId, st.anchorPage, page);
+        renderSplitWorkspace();
+        scheduleSplitWorkspaceAutosave();
+        return;
+      }
+    }
+    st.selected.clear();
+    st.selected.add(page);
+    st.anchorPage = page;
+  } else if (ev.ctrlKey || ev.metaKey) {
+    if (st.selected.has(page)) st.selected.delete(page);
+    else st.selected.add(page);
+    st.anchorPage = page;
+  } else {
+    st.selected.clear();
+    st.selected.add(page);
+    st.anchorPage = page;
+  }
+  renderSplitWorkspace();
+  scheduleSplitWorkspaceAutosave();
+}
+
+function updateSplitDropHover(clientX, clientY) {
+  const el = document.elementFromPoint(clientX, clientY);
+  const body = el?.closest?.(".split-group-body");
+  if (splitDropHoverEl && splitDropHoverEl !== body) {
+    splitDropHoverEl.classList.remove("split-drop-hover");
+  }
+  if (body) {
+    body.classList.add("split-drop-hover");
+    splitDropHoverEl = body;
+  }
+}
+
+function clearSplitDropHover() {
+  if (splitDropHoverEl) {
+    splitDropHoverEl.classList.remove("split-drop-hover");
+    splitDropHoverEl = null;
+  }
+}
+
+function removeSplitGhost() {
+  if (splitDragGhost) {
+    try {
+      splitDragGhost.remove();
+    } catch {
+      /* ignore */
+    }
+    splitDragGhost = null;
+  }
+  splitDragPages = null;
+}
+
+function startSplitDrag(page, _groupId, clientX, clientY) {
+  const st = splitWorkspaceState;
+  if (!st) return;
+  const pages = st.selected.has(page) ? getOrderedSelectedPages() : [page];
+  splitDragPages = pages;
+  const ordered = getOrderedPagesFromList(pages);
+  const ghost = document.createElement("div");
+  ghost.className = "split-drag-ghost";
+  ghost.setAttribute("aria-hidden", "true");
+  const c = buildSplitThumbCanvas(ordered[0]);
+  if (c) {
+    ghost.appendChild(c);
+    splitDragOffsetX = Math.floor(c.width / 2);
+    splitDragOffsetY = Math.floor(c.height / 2);
+  } else {
+    splitDragOffsetX = 44;
+    splitDragOffsetY = 56;
+  }
+  if (ordered.length > 1) {
+    const badge = document.createElement("div");
+    badge.textContent = String(ordered.length);
+    badge.style.cssText =
+      "position:absolute;right:4px;top:4px;background:#007acc;color:#fff;border-radius:10px;padding:2px 6px;font-size:11px;font-weight:700;z-index:2;";
+    ghost.appendChild(badge);
+  }
+  document.body.appendChild(ghost);
+  splitDragGhost = ghost;
+  splitDragGhost.style.left = `${clientX - splitDragOffsetX}px`;
+  splitDragGhost.style.top = `${clientY - splitDragOffsetY}px`;
+}
+
+function applySplitDrop(ordered, targetGroupId, beforePage) {
+  const st = splitWorkspaceState;
+  if (!st) return;
+  const tg = st.groups.find((g) => g.id === targetGroupId);
+  if (!tg) return;
+  const orig = [...tg.pages];
+  let insertPos = orig.length;
+  if (beforePage != null && Number.isFinite(Number(beforePage))) {
+    const bp = Number(beforePage);
+    const ix = orig.indexOf(bp);
+    insertPos = ix >= 0 ? ix : orig.length;
+  }
+  for (const g of st.groups) {
+    g.pages = g.pages.filter((p) => !ordered.includes(p));
+  }
+  const tg2 = st.groups.find((g) => g.id === targetGroupId);
+  if (!tg2) return;
+  let pos = insertPos;
+  for (let i = 0; i < insertPos && i < orig.length; i++) {
+    if (ordered.includes(orig[i])) pos -= 1;
+  }
+  const maxPos = tg2.pages.length;
+  pos = Math.max(0, Math.min(maxPos, pos));
+  tg2.pages.splice(pos, 0, ...ordered);
+}
+
+function finishSplitDrag(clientX, clientY) {
+  const st = splitWorkspaceState;
+  const ordered = splitDragPages ? getOrderedPagesFromList(splitDragPages) : [];
+  if (!st || !ordered.length) return;
+  const el = document.elementFromPoint(clientX, clientY);
+  const thumb = el?.closest?.(".split-thumb");
+  const body = el?.closest?.(".split-group-body");
+  let targetGroupId = null;
+  let beforePage = null;
+  if (thumb) {
+    targetGroupId = thumb.dataset.groupId || null;
+    beforePage = Number(thumb.dataset.page);
+  } else if (body) {
+    targetGroupId = body.dataset.groupId || null;
+  }
+  if (!targetGroupId) return;
+  applySplitDrop(ordered, targetGroupId, Number.isFinite(beforePage) ? beforePage : null);
+  st.selected.clear();
+}
+
+function onSplitThumbPointerDown(ev, page, groupId) {
+  if (ev.button !== 0) return;
+  const noDrag = Boolean(ev.shiftKey || ev.ctrlKey || ev.metaKey);
+  splitPointer = {
+    page,
+    groupId,
+    startX: ev.clientX,
+    startY: ev.clientY,
+    dragging: false,
+    didDrag: false,
+    noDrag,
+    shift: ev.shiftKey,
+    ctrl: ev.ctrlKey || ev.metaKey
+  };
+
+  const move = (e) => {
+    if (!splitPointer) return;
+    const dx = e.clientX - splitPointer.startX;
+    const dy = e.clientY - splitPointer.startY;
+    if (!splitPointer.noDrag && !splitPointer.dragging && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+      splitPointer.dragging = true;
+      splitPointer.didDrag = true;
+      startSplitDrag(splitPointer.page, splitPointer.groupId, e.clientX, e.clientY);
+    }
+    if (splitPointer.dragging && splitDragGhost) {
+      splitDragGhost.style.left = `${e.clientX - splitDragOffsetX}px`;
+      splitDragGhost.style.top = `${e.clientY - splitDragOffsetY}px`;
+    }
+    updateSplitDropHover(e.clientX, e.clientY);
+  };
+
+  const up = (e) => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    if (splitPointer?.dragging) {
+      finishSplitDrag(e.clientX, e.clientY);
+      renderSplitWorkspace();
+      scheduleSplitWorkspaceAutosave();
+    } else if (splitPointer && !splitPointer.didDrag) {
+      handleSplitThumbClick(page, groupId, {
+        shiftKey: splitPointer.shift,
+        ctrlKey: splitPointer.ctrl,
+        metaKey: splitPointer.ctrl
+      });
+    }
+    splitPointer = null;
+    clearSplitDropHover();
+    removeSplitGhost();
+  };
+
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
+}
+
+function createSplitThumbEl(page, groupId) {
+  const wrap = document.createElement("div");
+  wrap.className = "split-thumb";
+  if (splitWorkspaceState?.selected.has(page)) wrap.classList.add("split-thumb-selected");
+  wrap.dataset.page = String(page);
+  wrap.dataset.groupId = groupId;
+  const cw = document.createElement("div");
+  cw.className = "split-thumb-canvas-wrap";
+  const canvas = buildSplitThumbCanvas(page);
+  if (canvas) cw.appendChild(canvas);
+  else {
+    const ph = document.createElement("div");
+    ph.textContent = "…";
+    ph.style.padding = "24px 8px";
+    ph.style.textAlign = "center";
+    cw.appendChild(ph);
+  }
+  const meta = document.createElement("div");
+  meta.className = "split-thumb-meta";
+  meta.textContent = `p. ${page}`;
+  wrap.appendChild(cw);
+  wrap.appendChild(meta);
+  wrap.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    onSplitThumbPointerDown(e, page, groupId);
+  });
+  return wrap;
+}
+
+function renderSplitWorkspace() {
+  if (!splitWorkspaceGroups || !splitWorkspaceState) return;
+  const st = splitWorkspaceState;
+  splitWorkspaceGroups.innerHTML = "";
+  for (const g of st.groups) {
+    const section = document.createElement("section");
+    section.className = "split-group";
+    section.dataset.groupId = g.id;
+    const header = document.createElement("div");
+    header.className = "split-group-header";
+    const label = document.createElement("label");
+    const span = document.createElement("span");
+    span.textContent = "Groupe";
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "split-group-name";
+    inp.value = g.name;
+    inp.setAttribute("aria-label", "Nom du groupe");
+    inp.addEventListener("input", () => {
+      g.name = inp.value;
+      scheduleSplitWorkspaceAutosave();
+    });
+    label.appendChild(span);
+    label.appendChild(inp);
+    header.appendChild(label);
+    section.appendChild(header);
+    const body = document.createElement("div");
+    body.className = "split-group-body";
+    body.dataset.groupId = g.id;
+    for (const page of g.pages) {
+      body.appendChild(createSplitThumbEl(page, g.id));
+    }
+    section.appendChild(body);
+    splitWorkspaceGroups.appendChild(section);
+  }
+}
+
+function addSplitGroup() {
+  if (!splitWorkspaceState) return;
+  const num = splitWorkspaceState.nextGroupId;
+  splitWorkspaceState.nextGroupId += 1;
+  splitWorkspaceState.groups.push({ id: `g${num}`, name: `groupe ${num}`, pages: [] });
+  renderSplitWorkspace();
+  scheduleSplitWorkspaceAutosave();
+}
+
+function openSplitWorkspace() {
+  const tab = getActiveTab();
+  if (!tab) {
+    setStatus("Split: aucun PDF actif.");
+    return;
+  }
+  if (!Number(tab.pageCount) || tab.pageCount < 1) {
+    setStatus("Split: document non pret.");
+    return;
+  }
+  splitWorkspaceState = loadSplitWorkspaceDraft(tab) || createSplitWorkspaceState(tab);
+  normalizeSplitState(splitWorkspaceState, tab);
+  splitWorkspaceOverlay?.classList.remove("hidden");
+  splitWorkspaceOverlay?.setAttribute("aria-hidden", "false");
+  renderSplitWorkspace();
+  scheduleSplitWorkspaceAutosave();
+  try {
+    splitWorkspaceValidateBtn?.focus?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function closeSplitWorkspace() {
+  scheduleSplitWorkspaceAutosave();
+  splitWorkspaceOverlay?.classList.add("hidden");
+  splitWorkspaceOverlay?.setAttribute("aria-hidden", "true");
+  splitWorkspaceState = null;
+  removeSplitGhost();
+  clearSplitDropHover();
+}
+
+async function validateSplitWorkspace() {
+  const st = splitWorkspaceState;
+  const tab = getActiveTab();
+  if (!st || !tab || tab.path !== st.tabPath) return;
+  const exports = [];
+  let idx = 0;
+  for (const g of st.groups) {
+    if (!g.pages.length) continue;
+    idx += 1;
+    const safe = sanitizeSplitBaseName(g.name);
+    const outputPath = buildDefaultOutputPath(tab.path, `split-${idx}-${safe}`);
+    exports.push({ output_path: outputPath, page_indices: [...g.pages] });
+  }
+  if (!exports.length) {
+    setStatus("Split: aucun groupe avec des pages.");
+    return;
+  }
+  await window.maniPdfApi.createJob({
+    type: "split_groups",
+    payload: { input_path: tab.path, groups: exports }
+  });
+  setStatus("Job split (groupes) ajoute.");
+  try {
+    localStorage.removeItem(splitWorkspaceDraftKey(tab.path));
+  } catch {
+    /* ignore */
+  }
+  await refreshJobs();
+  closeSplitWorkspace();
+}
+
 async function createMergeJob() {
 
   const pdfTabs = state.tabs.map((t) => t.path);
@@ -2155,24 +2661,8 @@ async function createMergeJob() {
   await refreshJobs();
 }
 
-async function createSplitJob() {
-
-  const tab = getActiveTab();
-  if (!tab) {
-    setStatus("Split: aucun PDF actif.");
-    return;
-  }
-  const range = window.prompt("Plage de pages (ex: 1-2)", "1-1") || "1-1";
-  const [fromRaw, toRaw] = range.split("-");
-  const fromPage = Math.max(1, Number(fromRaw) || 1);
-  const toPage = Math.max(fromPage, Number(toRaw) || fromPage);
-  const outputPath = buildDefaultOutputPath(tab.path, `split-${fromPage}-${toPage}`);
-  await window.maniPdfApi.createJob({
-    type: "split",
-    payload: { input_path: tab.path, from_page: fromPage, to_page: toPage, output_path: outputPath }
-  });
-  setStatus("Job split ajoute.");
-  await refreshJobs();
+function createSplitJob() {
+  openSplitWorkspace();
 }
 
 async function createCompressJob() {
@@ -2268,6 +2758,7 @@ function renderAnnotations() {
     node.style.top = `${a.y}px`;
     node.style.width = `${a.w}px`;
     node.style.height = `${a.h}px`;
+    node.style.transformOrigin = "0 0";
     node.style.transform = `rotate(${a.rotation || 0}deg)`;
     node.style.opacity = String((a.opacity ?? 100) / 100);
     node.dataset.id = a.id;
@@ -3168,7 +3659,18 @@ mergeBtn?.addEventListener?.("click", () => {
 });
 splitBtn?.addEventListener?.("click", () => {
   closeAllFlyoutMenus();
-  void createSplitJob();
+  createSplitJob();
+});
+splitWorkspaceCloseBtn?.addEventListener?.("click", () => closeSplitWorkspace());
+splitWorkspaceAddGroupBtn?.addEventListener?.("click", () => addSplitGroup());
+splitWorkspaceValidateBtn?.addEventListener?.("click", () => void validateSplitWorkspace());
+splitWorkspaceOverlay?.addEventListener?.("click", (e) => {
+  if (e.target === splitWorkspaceOverlay) closeSplitWorkspace();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!splitWorkspaceOverlay || splitWorkspaceOverlay.classList.contains("hidden")) return;
+  closeSplitWorkspace();
 });
 compressBtn?.addEventListener?.("click", () => {
   closeAllFlyoutMenus();
@@ -3823,7 +4325,7 @@ try {
   window.maniPdfApi?.onPdfToolAction?.((action) => {
     closeAllFlyoutMenus();
     if (action === "merge") void createMergeJob();
-    else if (action === "split") void createSplitJob();
+    else if (action === "split") createSplitJob();
     else if (action === "compress") void createCompressJob();
     else if (action === "protect") void createProtectJob();
     else if (action === "unprotect") void createUnprotectJob();

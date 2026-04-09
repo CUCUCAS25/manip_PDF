@@ -6,7 +6,15 @@ import logging
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from pdf_ops import apply_annotations, compress_pdf, merge_pdfs, protect_pdf, split_pdf, unprotect_pdf
+from pdf_ops import (
+    apply_annotations,
+    compress_pdf,
+    merge_pdfs,
+    protect_pdf,
+    split_pdf,
+    split_pdf_groups,
+    unprotect_pdf,
+)
 from pdf_validation import validate_pdf_path
 
 LOG_VERBOSE = os.environ.get("MANI_PDF_PY_LOGS") != "0"
@@ -55,6 +63,14 @@ class Handler(BaseHTTPRequestHandler):
                     payload.get("output_path", ""),
                 )
                 self._json_response(200, {"ok": True, "output_path": output})
+                return
+
+            if self.path == "/split-groups":
+                outputs = split_pdf_groups(
+                    payload.get("input_path", ""),
+                    payload.get("groups", []) or [],
+                )
+                self._json_response(200, {"ok": True, "output_paths": outputs})
                 return
 
             if self.path == "/compress":

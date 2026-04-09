@@ -328,6 +328,7 @@ async function processJobQueue() {
   let route = "/validate";
   if (next.type === "merge") route = "/merge";
   if (next.type === "split") route = "/split";
+  if (next.type === "split_groups") route = "/split-groups";
   if (next.type === "compress") route = "/compress";
   if (next.type === "protect") route = "/protect";
   if (next.type === "unprotect") route = "/unprotect";
