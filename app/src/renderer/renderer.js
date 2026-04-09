@@ -32,11 +32,12 @@ const nextBtn = document.getElementById("nextBtn");
 const pageInfo = document.getElementById("pageInfo");
 const statusBar = document.getElementById("statusBar");
 const tabs = document.getElementById("tabs");
-const pdfViewer = document.getElementById("pdfViewer");
+const pdfCanvas = document.getElementById("pdfCanvas");
 const annotationLayer = document.getElementById("annotationLayer");
 const jobsPanel = document.getElementById("jobsPanel");
 const sensitivePanel = document.getElementById("sensitivePanel");
 const toolTip = document.getElementById("toolTip");
+const dropOverlay = document.getElementById("dropOverlay");
 const shapeModal = document.getElementById("shapeModal");
 const shapeGrid = document.getElementById("shapeGrid");
 const closeShapeModalBtn = document.getElementById("closeShapeModalBtn");
@@ -330,15 +331,19 @@ function renderTabs() {
 function updateViewer() {
   const tab = getActiveTab();
   if (!tab) {
-    pdfViewer.removeAttribute("src");
+    if (pdfCanvas) {
+      const ctx = pdfCanvas.getContext?.("2d");
+      if (ctx) ctx.clearRect(0, 0, pdfCanvas.width || 0, pdfCanvas.height || 0);
+    }
     annotationLayer.innerHTML = "";
     pageInfo.textContent = t("noPdf");
     return;
   }
   const page = tab.currentPage || 1;
-  // Eviter les params de zoom non supportes selon moteurs PDF embarques:
-  // certains rendent la zone blanche/invisible.
-  pdfViewer.src = `${tab.path}#page=${page}`;
+  renderPdfPage(tab.path, page).catch((err) => {
+    setStatus("Erreur rendu PDF.");
+    log("pdf:render:failed", { message: err?.message || String(err) });
+  });
   pageInfo.textContent = `Page ${page}`;
   enforceSafeZoneForActiveTab();
   renderAnnotations();
@@ -349,6 +354,83 @@ function setZoomMode(mode) {
   // Le viewer embarque deja un auto-fit conteneur; on garde le mode en etat
   // pour UX sans forcer un rechargement du PDF (plus stable).
   setStatus(state.zoomMode === "page-fit" ? "Affichage ajuste a la page" : "Affichage ajuste a la largeur");
+}
+
+function base64ToUint8Array(base64) {
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function getPdfJs() {
+  // Chargé via pdfjs-bridge.mjs (module)
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 2500) {
+    const lib = window.pdfjsLib;
+    if (lib) return lib;
+    // petite attente pour laisser le module se charger
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error("pdfjsLib non chargé (pdfjs-bridge.mjs).");
+}
+
+const pdfRenderCache = {
+  path: null,
+  base64: null,
+  doc: null
+};
+
+async function loadPdfDocument(pdfPath) {
+  if (pdfRenderCache.path === pdfPath && pdfRenderCache.doc) return pdfRenderCache.doc;
+  const pdfjs = await getPdfJs();
+  const read = await window.maniPdfApi.readPdfBytes(pdfPath);
+  if (!read.ok) throw new Error(read.error || "Lecture PDF impossible.");
+  const data = base64ToUint8Array(read.base64);
+  const loadingTask = pdfjs.getDocument({ data, disableFontFace: true });
+  const doc = await loadingTask.promise;
+  pdfRenderCache.path = pdfPath;
+  pdfRenderCache.base64 = read.base64;
+  pdfRenderCache.doc = doc;
+  return doc;
+}
+
+async function renderPdfPage(pdfPath, pageNumber) {
+  if (!pdfCanvas) return;
+  const tab = getActiveTab();
+  if (!tab) return;
+  log("pdf:render:start", { page: pageNumber });
+
+  const doc = await loadPdfDocument(pdfPath);
+  const page = await doc.getPage(pageNumber);
+
+  // On calcule le scale sur la largeur dispo du conteneur (scrollable),
+  // mais on laisse le canvas conserver son ratio (pas de stretch CSS).
+  const container = pdfCanvas.parentElement;
+  const containerWidth = Math.max(1, Math.floor(container?.clientWidth || 1));
+  const targetWidth = containerWidth;
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = targetWidth / baseViewport.width;
+  const viewport = page.getViewport({ scale: Number.isFinite(scale) && scale > 0 ? scale : 1 });
+
+  pdfCanvas.width = Math.floor(viewport.width);
+  pdfCanvas.height = Math.floor(viewport.height);
+  // Fix anti-étirement: on force les dimensions CSS à matcher le buffer.
+  pdfCanvas.style.width = `${pdfCanvas.width}px`;
+  pdfCanvas.style.height = `${pdfCanvas.height}px`;
+
+  // Ajuster la zone d'annotations sur la taille rendue (safe zone)
+  annotationLayer.style.width = `${pdfCanvas.width}px`;
+  annotationLayer.style.height = `${pdfCanvas.height}px`;
+  if (dropOverlay) {
+    dropOverlay.style.width = `${pdfCanvas.width}px`;
+    dropOverlay.style.height = `${pdfCanvas.height}px`;
+  }
+
+  const ctx = pdfCanvas.getContext("2d", { alpha: false });
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  log("pdf:render:done", { page: pageNumber, w: pdfCanvas.width, h: pdfCanvas.height });
 }
 
 async function addPdfTab(filePath, fileName) {
@@ -1108,6 +1190,238 @@ window.addEventListener("blur", () => {
   if (activePointerCleanup) activePointerCleanup();
 });
 
+function insertTextAtCaret(text) {
+  try {
+    // execCommand est deprecated mais reste le fallback le plus compatible
+    // pour injecter du texte dans une zone contentEditable.
+    document.execCommand("insertText", false, text);
+    return true;
+  } catch {}
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  range.insertNode(document.createTextNode(text));
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
+function trySetCaretFromPoint(container, clientX, clientY) {
+  if (!container) return false;
+  try {
+    // Standard moderne
+    if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(clientX, clientY);
+      if (!pos) return false;
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    }
+    // Fallback Chromium (legacy)
+    if (document.caretRangeFromPoint) {
+      const range = document.caretRangeFromPoint(clientX, clientY);
+      if (!range) return false;
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function setupDragAndDrop() {
+  try {
+  // Important sous Electron: sans preventDefault, certains drops (fichiers)
+  // peuvent être refusés ou provoquer un comportement par défaut indésirable.
+  const allowDrop = (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  };
+
+  let dragDepth = 0;
+  let lastDragOverLogAt = 0;
+  let lastDragOverTarget = "";
+  const logDragOver = (event, scope) => {
+    const now = Date.now();
+    if (now - lastDragOverLogAt < 200) return;
+    lastDragOverLogAt = now;
+    const target = event.target;
+    const tag = target?.tagName?.toLowerCase?.() || "unknown";
+    const id = target?.id ? `#${target.id}` : "";
+    const cls = target?.className ? `.${String(target.className).split(" ").filter(Boolean)[0] || ""}` : "";
+    const key = `${tag}${id}${cls}`;
+    const changed = key !== lastDragOverTarget;
+    lastDragOverTarget = key;
+    log("dnd:dragover", {
+      scope,
+      changedTarget: changed,
+      target: key,
+      x: event.clientX,
+      y: event.clientY,
+      editing: Boolean(state.editingAnnotationId),
+      types: Array.from(event.dataTransfer?.types || [])
+    });
+  };
+
+  // IMPORTANT: on attache aussi en capture=true car certains plugins/embeds
+  // peuvent interrompre la propagation en bubbling.
+  document.addEventListener(
+    "dragenter",
+    (event) => {
+      dragDepth += 1;
+      allowDrop(event);
+      if (dragDepth === 1) {
+        document.body.classList.add("dnd-active");
+        log("dnd:session:start", {
+          editing: Boolean(state.editingAnnotationId),
+          types: Array.from(event.dataTransfer?.types || [])
+        });
+      }
+    },
+    true
+  );
+  document.addEventListener(
+    "dragover",
+    (event) => {
+      allowDrop(event);
+      logDragOver(event, "document");
+    },
+    true
+  );
+  document.addEventListener(
+    "dragleave",
+    (event) => {
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        document.body.classList.remove("dnd-active");
+        log("dnd:session:end");
+      }
+    },
+    true
+  );
+  document.addEventListener(
+    "drop",
+    (event) => {
+      allowDrop(event);
+      dragDepth = 0;
+      document.body.classList.remove("dnd-active");
+      log("dnd:session:drop", { x: event.clientX, y: event.clientY });
+    },
+    true
+  );
+
+  // PDF rendu en canvas => plus besoin d'attacher des listeners spécifiques au viewer.
+
+  annotationLayer.addEventListener("dragenter", (event) => {
+    allowDrop(event);
+    log("dnd:dragenter", {
+      editing: Boolean(state.editingAnnotationId),
+      types: Array.from(event.dataTransfer?.types || [])
+    });
+  });
+  annotationLayer.addEventListener("dragover", allowDrop);
+  annotationLayer.addEventListener("dragleave", (event) => {
+    event.preventDefault();
+    log("dnd:dragleave");
+  });
+  annotationLayer.addEventListener("drop", (event) => {
+    allowDrop(event);
+    const types = Array.from(event.dataTransfer?.types || []);
+
+    const textPlain = event.dataTransfer?.getData("text/plain") || "";
+    const text = textPlain.trim();
+
+    // Cas principal: drop de texte dans une annotation texte en mode édition.
+    if (state.editingAnnotationId && text) {
+      log("dnd:drop:text", { len: text.length, types });
+      insertTextAtCaret(text);
+      return;
+    }
+
+    // Sinon on ne fait rien fonctionnellement, mais on log pour debug.
+    // (Ex: drop fichier depuis l'explorateur, html, etc.)
+    const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files).map((f) => f.name) : [];
+    log("dnd:drop:ignored", { types, filesCount: files.length, files: files.slice(0, 3) });
+  });
+
+  // Overlay dédié: placé AU-DESSUS du <embed>, il capte les drags même quand
+  // le plugin PDF intercepte les événements.
+  if (dropOverlay && dropOverlay.addEventListener) {
+    const overlayAllow = (event) => {
+      allowDrop(event);
+      // On ne veut l'overlay "actif" que si on est en train d'éditer du texte.
+      // Sinon, il serait trop intrusif.
+      const active = Boolean(state.editingAnnotationId);
+      if (!active) {
+        log("dnd:overlay:ignored", { reason: "not-editing" });
+        return;
+      }
+      logDragOver(event, "overlay");
+    };
+
+    dropOverlay.addEventListener("dragenter", overlayAllow, true);
+    dropOverlay.addEventListener("dragover", overlayAllow, true);
+    dropOverlay.addEventListener(
+      "drop",
+      (event) => {
+        allowDrop(event);
+        const types = Array.from(event.dataTransfer?.types || []);
+        const textPlain = event.dataTransfer?.getData("text/plain") || "";
+        const text = textPlain.trim();
+
+        const tab = getActiveTab();
+        if (!tab || !state.editingAnnotationId) {
+          log("dnd:overlay:drop:ignored", { reason: "no-editing", types, len: text.length });
+          return;
+        }
+
+        const editingNode = annotationLayer.querySelector(`[data-id="${state.editingAnnotationId}"]`);
+        if (editingNode) {
+          editingNode.focus();
+          trySetCaretFromPoint(editingNode, event.clientX, event.clientY);
+        }
+
+        if (text) {
+          log("dnd:overlay:drop:text", { len: text.length, types });
+          insertTextAtCaret(text);
+          return;
+        }
+
+        const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files).map((f) => f.name) : [];
+        log("dnd:overlay:drop:ignored", { types, filesCount: files.length, files: files.slice(0, 3) });
+      },
+      true
+    );
+    dropOverlay.addEventListener(
+      "dragleave",
+      (event) => {
+        event.preventDefault();
+        log("dnd:overlay:dragleave");
+      },
+      true
+    );
+  } else {
+    log("dnd:overlay:missing");
+  }
+
+  log("dnd:setup:done", {
+    hasPdfCanvas: Boolean(pdfCanvas),
+    hasAnnotationLayer: Boolean(annotationLayer),
+    hasDropOverlay: Boolean(dropOverlay)
+  });
+  } catch (error) {
+    log("dnd:setup:failed", { message: error?.message || String(error) });
+  }
+}
+
 log("app:init");
 applyLanguage();
 updateWelcomeVisibility();
@@ -1115,5 +1429,6 @@ loadSession();
 refreshJobs();
 refreshSensitiveActions();
 refreshPythonHealth();
+setupDragAndDrop();
 setInterval(refreshJobs, 1000);
 setInterval(refreshSensitiveActions, 2000);

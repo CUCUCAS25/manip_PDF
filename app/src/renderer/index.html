@@ -62,8 +62,9 @@
       <section id="jobsPanel"></section>
       <section id="sensitivePanel"></section>
       <section class="viewer">
-        <embed id="pdfViewer" type="application/pdf" />
+        <canvas id="pdfCanvas"></canvas>
         <div id="annotationLayer"></div>
+        <div id="dropOverlay" aria-hidden="true"></div>
       </section>
     </main>
 
@@ -107,6 +108,7 @@
         </div>
       </div>
     </div>
+    <script type="module" src="./pdfjs-bridge.mjs"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

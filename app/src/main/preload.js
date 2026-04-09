@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("maniPdfApi", {
   openPdf: (path) => ipcRenderer.invoke("pdf:open", path),
+  readPdfBytes: (path) => ipcRenderer.invoke("pdf:read-bytes", path),
   openPdfDialog: () => ipcRenderer.invoke("dialog:openPdf"),
   saveSession: (payload) => ipcRenderer.invoke("session:save", payload),
   loadSession: () => ipcRenderer.invoke("session:load"),

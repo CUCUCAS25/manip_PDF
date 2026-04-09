@@ -321,6 +321,20 @@ ipcMain.handle("pdf:open", async (_, pdfPath) => {
   }
 });
 
+ipcMain.handle("pdf:read-bytes", async (_, pdfPath) => {
+  log("ipc", "pdf:read-bytes", { pdfPath });
+  try {
+    if (!pdfPath || !fs.existsSync(pdfPath)) {
+      return { ok: false, error: "Le fichier PDF n'existe pas." };
+    }
+    const buf = fs.readFileSync(pdfPath);
+    // Renvoi base64 pour éviter les soucis de sérialisation Buffer via IPC.
+    return { ok: true, base64: buf.toString("base64") };
+  } catch (error) {
+    return { ok: false, error: `Lecture PDF impossible: ${error.message}` };
+  }
+});
+
 ipcMain.handle("dialog:openPdf", async () => {
   log("ipc", "dialog:openPdf:start");
   if (!mainWindow) return { ok: false, error: "Fenetre principale indisponible." };
