@@ -16,6 +16,10 @@ class TestPdfValidation(unittest.TestCase):
         result = validate_pdf_path("C:/never/exists/file.pdf")
         self.assertFalse(result.ok)
 
+    def test_browser_fakepath_fails(self):
+        result = validate_pdf_path("C:\\fakepath\\document.pdf")
+        self.assertFalse(result.ok)
+
     def test_non_pdf_extension_fails(self):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
             path = tmp.name

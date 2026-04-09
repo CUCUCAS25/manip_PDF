@@ -7,32 +7,53 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <section id="welcomeScreen" class="welcome-screen">
+      <div class="welcome-card">
+        <h2>Bienvenue dans Mani PDF Local</h2>
+        <p>Selectionne le PDF que tu veux modifier pour commencer.</p>
+        <button id="welcomeOpenBtn" type="button">📂 Choisir un PDF</button>
+      </div>
+    </section>
     <header>
       <h1>Mani PDF Local</h1>
       <div class="actions">
-        <button id="openBtn">Ouvrir PDF</button>
-        <input id="fileInput" type="file" accept="application/pdf" hidden />
-        <button id="addTextBtn">+ Texte</button>
-        <button id="addRectBtn">+ Rectangle</button>
-        <button id="addImageBtn">+ Image</button>
+        <button id="openBtn" data-tooltip="Ouvre un fichier PDF depuis ton ordinateur.">📂 Ouvrir PDF</button>
+        <button id="languageBtn" data-tooltip="Choisir la langue de l'application.">🌐 Langue: FR</button>
+        <button id="addTextBtn" data-tooltip="Ajoute une zone de texte modifiable sur la page active.">🔤 + Texte</button>
+        <button id="addShapeBtn" data-tooltip="Ajoute une forme: clique puis choisis la forme dans la liste.">🔷 + Forme</button>
+        <button id="addImageBtn" data-tooltip="Insère une image locale dans le document.">🖼️ + Image</button>
         <input id="imageInput" type="file" accept="image/*" hidden />
-        <button id="deleteSelectedBtn">Supprimer selection</button>
-        <button id="undoBtn">Undo</button>
-        <button id="redoBtn">Redo</button>
-        <label>W <input id="propWidth" type="number" min="20" value="180" /></label>
-        <label>H <input id="propHeight" type="number" min="20" value="120" /></label>
-        <label>R <input id="propRotation" type="number" min="0" max="360" value="0" /></label>
-        <label>Op <input id="propOpacity" type="number" min="0" max="100" value="100" /></label>
-        <button id="applyPropsBtn">Appliquer</button>
-        <button id="mergeBtn">Fusion</button>
-        <button id="splitBtn">Split</button>
-        <button id="compressBtn">Compression</button>
-        <button id="protectBtn">Protect</button>
-        <button id="unprotectBtn">Unprotect</button>
-        <button id="prevBtn">Page -</button>
+        <button id="deleteSelectedBtn" data-tooltip="Supprime l'élément actuellement sélectionné.">🗑️ Supprimer</button>
+        <button id="undoBtn" data-tooltip="Annule la dernière modification.">↶ Undo</button>
+        <button id="redoBtn" data-tooltip="Rétablit la modification annulée.">↷ Redo</button>
+        <label>Largeur <input id="propWidth" type="number" min="20" value="180" /></label>
+        <label>Hauteur <input id="propHeight" type="number" min="20" value="120" /></label>
+        <label>Rotation <input id="propRotation" type="number" min="0" max="360" value="0" /></label>
+        <label>Opacite (%) <input id="propOpacity" type="number" min="0" max="100" value="100" /></label>
+        <label>Txt <input id="propTextColor" type="color" value="#111111" /></label>
+        <label>Fond <input id="propBgColor" type="color" value="#fff8a6" /></label>
+        <label>Marges <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
+        <label>Police
+          <select id="propFontFamily">
+            <option value="Arial" selected>Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Georgia">Georgia</option>
+          </select>
+        </label>
+        <label>Taille <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
+        <button id="applyPropsBtn" data-tooltip="Applique les propriétés visuelles au bloc sélectionné.">✅ Appliquer</button>
+        <button id="mergeBtn" data-tooltip="Fusionne les PDFs ouverts en un seul fichier.">🧩 Fusion</button>
+        <button id="splitBtn" data-tooltip="Extrait une plage de pages du PDF actif.">✂️ Split</button>
+        <button id="compressBtn" data-tooltip="Crée une version compressée du PDF actif.">🗜️ Compression</button>
+        <button id="protectBtn" data-tooltip="Protège le PDF actif avec un mot de passe.">🔒 Protect</button>
+        <button id="unprotectBtn" data-tooltip="Retire la protection d'un PDF avec son mot de passe.">🔓 Unprotect</button>
+        <button id="fitWidthBtn" data-tooltip="Ajuste le PDF a la largeur de la fenetre.">↔️ Fit largeur</button>
+        <button id="fitPageBtn" data-tooltip="Ajuste le PDF entier dans la fenetre.">🗐 Fit page</button>
+        <button id="prevBtn" data-tooltip="Affiche la page précédente.">◀ Page -</button>
         <span id="pageInfo">Aucun PDF</span>
-        <button id="nextBtn">Page +</button>
-        <button id="saveSessionBtn">Sauver session</button>
+        <button id="nextBtn" data-tooltip="Affiche la page suivante.">Page + ▶</button>
+        <button id="saveSessionBtn" data-tooltip="Sauvegarde l'état courant (onglets, positions, annotations).">💾 Sauver session</button>
       </div>
     </header>
 
@@ -47,6 +68,45 @@
     </main>
 
     <footer id="statusBar">Pret</footer>
+    <div id="toolTip" class="tooltip hidden" role="tooltip"></div>
+    <div id="shapeModal" class="shape-modal hidden" role="dialog" aria-modal="true" aria-label="Choix de forme">
+      <div class="shape-modal-content">
+        <div class="shape-modal-header">
+          <strong>Choisir une forme</strong>
+          <button id="closeShapeModalBtn" type="button">✖</button>
+        </div>
+        <div id="shapeGrid" class="shape-grid">
+          <button type="button" data-shape="rect">⬛ Rectangle</button>
+          <button type="button" data-shape="ellipse">⚪ Ellipse</button>
+          <button type="button" data-shape="triangle">🔺 Triangle</button>
+          <button type="button" data-shape="line">➖ Ligne</button>
+          <button type="button" data-shape="diamond">💠 Losange</button>
+          <button type="button" data-shape="pentagon">🔷 Pentagone</button>
+          <button type="button" data-shape="hexagon">⬢ Hexagone</button>
+          <button type="button" data-shape="octagon">🛑 Octogone</button>
+          <button type="button" data-shape="star">⭐ Etoile</button>
+          <button type="button" data-shape="arrow">➡️ Fleche</button>
+          <button type="button" data-shape="heart">❤️ Coeur</button>
+          <button type="button" data-shape="cross">✚ Croix</button>
+          <button type="button" data-shape="parallelogram">▱ Parallelogramme</button>
+          <button type="button" data-shape="trapezoid">⏢ Trapeze</button>
+        </div>
+      </div>
+    </div>
+    <div id="languageModal" class="shape-modal hidden" role="dialog" aria-modal="true" aria-label="Choix de langue">
+      <div class="shape-modal-content">
+        <div class="shape-modal-header">
+          <strong>Choisir la langue</strong>
+          <button id="closeLanguageModalBtn" type="button">✖</button>
+        </div>
+        <div id="languageGrid" class="shape-grid">
+          <button type="button" data-lang="fr">Francais</button>
+          <button type="button" data-lang="en">English</button>
+          <button type="button" data-lang="es">Espanol</button>
+          <button type="button" data-lang="pt">Portugues</button>
+        </div>
+      </div>
+    </div>
     <script src="./renderer.js"></script>
   </body>
 </html>

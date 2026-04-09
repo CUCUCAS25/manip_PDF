@@ -1,0 +1,15 @@
+{
+  "name": "01-mani-pdf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Root scripts for Mani PDF Local",
+  "scripts": {
+    "dev": "npm --prefix app run dev",
+    "start": "npm --prefix app run start",
+    "build": "npm --prefix app run build",
+    "dist": "npm --prefix app run dist",
+    "test": "npm --prefix app run test",
+    "e2e": "npm --prefix app run e2e"
+  },
+  "type": "commonjs"
+}

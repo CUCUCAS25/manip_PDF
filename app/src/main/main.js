@@ -3,6 +3,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
+const { log } = require("./logger");
+
+// Ensure logs go to project root by default.
+// (Logger also has its own default, but this makes it explicit.)
+try {
+  process.env.MANI_PDF_LOG_PATH = process.env.MANI_PDF_LOG_PATH || path.join(app.getAppPath(), "..", "mani-pdf.log");
+} catch {
+  // ignore
+}
 
 let mainWindow = null;
 let autosaveInterval = null;
@@ -15,6 +24,7 @@ let activeJobId = null;
 let sensitiveActions = [];
 
 function loadSensitiveLog() {
+  log("main", "loadSensitiveLog:start");
   try {
     if (fs.existsSync(sensitiveLogPath)) {
       sensitiveActions = JSON.parse(fs.readFileSync(sensitiveLogPath, "utf8"));
@@ -23,15 +33,18 @@ function loadSensitiveLog() {
   } catch {
     sensitiveActions = [];
   }
+  log("main", "loadSensitiveLog:done", { count: sensitiveActions.length });
 }
 
 function appendSensitiveAction(entry) {
+  log("main", "appendSensitiveAction", entry);
   sensitiveActions.push(entry);
   if (sensitiveActions.length > 200) sensitiveActions = sensitiveActions.slice(-200);
   fs.writeFileSync(sensitiveLogPath, JSON.stringify(sensitiveActions, null, 2), "utf8");
 }
 
 function loadJobs() {
+  log("main", "loadJobs:start");
   try {
     if (!fs.existsSync(jobsStatePath)) return;
     const parsed = JSON.parse(fs.readFileSync(jobsStatePath, "utf8"));
@@ -44,13 +57,16 @@ function loadJobs() {
   } catch {
     jobs.length = 0;
   }
+  log("main", "loadJobs:done", { count: jobs.length });
 }
 
 function persistJobs() {
+  log("main", "persistJobs", { count: jobs.length });
   fs.writeFileSync(jobsStatePath, JSON.stringify(jobs, null, 2), "utf8");
 }
 
 function createWindow() {
+  log("main", "createWindow");
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -65,6 +81,7 @@ function createWindow() {
 }
 
 function createMenu() {
+  log("main", "createMenu");
   const template = [
     {
       label: "File",
@@ -78,6 +95,7 @@ function createMenu() {
               filters: [{ name: "PDF", extensions: ["pdf"] }]
             });
             if (!result.canceled && result.filePaths[0]) {
+              log("main", "menu:openPdf:selected", { path: result.filePaths[0] });
               mainWindow.webContents.send("pdf:open-from-menu", result.filePaths[0]);
             }
           }
@@ -100,6 +118,7 @@ function createMenu() {
 }
 
 function startAutosave() {
+  log("main", "startAutosave");
   if (autosaveInterval) clearInterval(autosaveInterval);
   autosaveInterval = setInterval(() => {
     if (!mainWindow) return;
@@ -108,13 +127,15 @@ function startAutosave() {
 }
 
 function startPythonService() {
-  const scriptPath = path.join(__dirname, "..", "..", "..", "python", "pdf_service.py");
+  const scriptPath = path.join(__dirname, "..", "..", "python", "pdf_service.py");
+  log("main", "startPythonService", { scriptPath });
   pythonProcess = spawn("python", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
-  pythonProcess.stdout.on("data", () => {});
-  pythonProcess.stderr.on("data", () => {});
+  pythonProcess.stdout.on("data", (buf) => log("python", "stdout", { line: buf.toString().trim() }));
+  pythonProcess.stderr.on("data", (buf) => log("python", "stderr", { line: buf.toString().trim() }));
 }
 
 function stopPythonService() {
+  log("main", "stopPythonService");
   if (pythonProcess) {
     pythonProcess.kill();
     pythonProcess = null;
@@ -122,6 +143,7 @@ function stopPythonService() {
 }
 
 function validateWithPython(pdfPath) {
+  log("main", "validateWithPython:request", { pdfPath });
   return new Promise((resolve) => {
     const body = JSON.stringify({ path: pdfPath });
     const req = http.request(
@@ -142,6 +164,7 @@ function validateWithPython(pdfPath) {
         res.on("end", () => {
           try {
             const parsed = JSON.parse(data || "{}");
+            log("main", "validateWithPython:response", parsed);
             resolve(parsed);
           } catch {
             resolve({ ok: false, error: "Reponse validation invalide." });
@@ -161,6 +184,7 @@ function validateWithPython(pdfPath) {
 }
 
 function postToPython(route, payload) {
+  log("main", "postToPython:request", { route, payload });
   return new Promise((resolve) => {
     const body = JSON.stringify(payload || {});
     const req = http.request(
@@ -232,6 +256,7 @@ async function processJobQueue() {
   if (activeJobId) return;
   const next = jobs.find((j) => j.status === "queued");
   if (!next) return;
+  log("jobs", "process:start", { id: next.id, type: next.type });
   activeJobId = next.id;
   next.status = "running";
   next.progress = 10;
@@ -260,6 +285,7 @@ async function processJobQueue() {
     next.progress = 100;
     next.error = error.message;
   } finally {
+    log("jobs", "process:end", { id: next.id, status: next.status, error: next.error || null });
     if (next.type === "protect" || next.type === "unprotect") {
       appendSensitiveAction({
         ts: new Date().toISOString(),
@@ -276,6 +302,7 @@ async function processJobQueue() {
 }
 
 ipcMain.handle("pdf:open", async (_, pdfPath) => {
+  log("ipc", "pdf:open", { pdfPath });
   try {
     if (!pdfPath || !fs.existsSync(pdfPath)) {
       return { ok: false, error: "Le fichier PDF n'existe pas." };
@@ -294,7 +321,20 @@ ipcMain.handle("pdf:open", async (_, pdfPath) => {
   }
 });
 
+ipcMain.handle("dialog:openPdf", async () => {
+  log("ipc", "dialog:openPdf:start");
+  if (!mainWindow) return { ok: false, error: "Fenetre principale indisponible." };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [{ name: "PDF", extensions: ["pdf"] }]
+  });
+  if (result.canceled || !result.filePaths[0]) return { ok: false, cancelled: true };
+  log("ipc", "dialog:openPdf:selected", { path: result.filePaths[0] });
+  return { ok: true, path: result.filePaths[0] };
+});
+
 ipcMain.handle("session:save", async (_, payload) => {
+  log("ipc", "session:save", { tabs: payload?.tabs?.length || 0 });
   try {
     fs.writeFileSync(sessionStatePath, JSON.stringify(payload, null, 2), "utf8");
     return { ok: true };
@@ -304,6 +344,7 @@ ipcMain.handle("session:save", async (_, payload) => {
 });
 
 ipcMain.handle("session:load", async () => {
+  log("ipc", "session:load");
   try {
     if (!fs.existsSync(sessionStatePath)) return { ok: true, data: null };
     const content = fs.readFileSync(sessionStatePath, "utf8");
@@ -321,6 +362,7 @@ ipcMain.handle("session:load", async () => {
 });
 
 ipcMain.handle("job:create", async (_, input) => {
+  log("ipc", "job:create", input);
   const id = `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   jobs.push({
     id,
@@ -364,8 +406,13 @@ ipcMain.handle("job:retry", async (_, id) => {
   return { ok: true };
 });
 ipcMain.handle("sensitive:list", async () => ({ ok: true, actions: sensitiveActions }));
+ipcMain.handle("log:renderer", async (_, payload) => {
+  log("renderer", payload?.message || "event", payload?.data || null);
+  return { ok: true };
+});
 
 app.whenReady().then(() => {
+  log("main", "app:ready");
   loadSensitiveLog();
   loadJobs();
   createWindow();
@@ -376,6 +423,17 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  log("main", "app:window-all-closed");
   stopPythonService();
   if (process.platform !== "darwin") app.quit();
+});
+
+process.on("uncaughtException", (err) => {
+  log("fatal", "uncaughtException", { message: err.message, stack: err.stack });
+});
+
+process.on("unhandledRejection", (reason) => {
+  const r =
+    reason instanceof Error ? { message: reason.message, stack: reason.stack } : { reason: String(reason) };
+  log("fatal", "unhandledRejection", r);
 });

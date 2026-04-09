@@ -10,6 +10,48 @@ body {
   height: 100vh;
 }
 
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #f4f9ff 0%, #eef3ff 100%);
+  z-index: 11000;
+}
+
+.welcome-screen.hidden {
+  display: none;
+}
+
+.welcome-card {
+  width: min(560px, 92vw);
+  background: #ffffff;
+  border: 1px solid #d8e6ff;
+  border-radius: 14px;
+  padding: 26px;
+  text-align: center;
+  box-shadow: 0 12px 34px rgba(15, 48, 96, 0.14);
+}
+
+.welcome-card h2 {
+  margin: 0 0 10px 0;
+}
+
+.welcome-card p {
+  margin: 0 0 18px 0;
+  color: #334;
+}
+
+.welcome-card button {
+  border: 1px solid #007acc;
+  background: #007acc;
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
 header {
   padding: 10px;
   border-bottom: 1px solid #ddd;
@@ -39,6 +81,7 @@ main {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .tabs {
@@ -86,6 +129,7 @@ main {
 .viewer {
   flex: 1;
   position: relative;
+  min-height: 0;
 }
 
 #pdfViewer {
@@ -98,6 +142,8 @@ main {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  outline: 2px dashed rgba(0, 122, 204, 0.35);
+  outline-offset: -2px;
 }
 
 .annotation {
@@ -112,10 +158,23 @@ main {
   border-color: #007acc;
 }
 
+.annotation.text.selected {
+  border-style: solid;
+  border-color: #007acc;
+  border-width: 2px;
+}
+
 .annotation.text {
   background: rgba(255, 255, 180, 0.65);
   padding: 6px 8px;
   min-width: 120px;
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+
+.annotation.text.editing {
+  outline: 1px solid #ff9900;
+  cursor: text;
 }
 
 .annotation.rect {
@@ -125,6 +184,90 @@ main {
   min-height: 60px;
 }
 
+.annotation.ellipse {
+  background: rgba(255, 120, 0, 0.2);
+  border: 2px solid #ff7800;
+  border-radius: 999px;
+  min-width: 90px;
+  min-height: 60px;
+}
+
+.annotation.triangle {
+  background: rgba(125, 83, 255, 0.25);
+  border: 2px solid #7d53ff;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  min-width: 90px;
+  min-height: 70px;
+}
+
+.annotation.line {
+  background: transparent;
+  border: none;
+  border-top: 3px solid #00a86b;
+  min-width: 100px;
+  min-height: 20px;
+}
+
+.annotation.diamond {
+  background: rgba(255, 0, 122, 0.25);
+  border: 2px solid #d10068;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+.annotation.pentagon {
+  background: rgba(0, 155, 255, 0.22);
+  border: 2px solid #0077c2;
+  clip-path: polygon(50% 0%, 95% 35%, 78% 100%, 22% 100%, 5% 35%);
+}
+
+.annotation.hexagon {
+  background: rgba(60, 179, 113, 0.25);
+  border: 2px solid #2e8b57;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+.annotation.octagon {
+  background: rgba(255, 87, 34, 0.22);
+  border: 2px solid #d84315;
+  clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+}
+
+.annotation.star {
+  background: rgba(255, 215, 0, 0.3);
+  border: 2px solid #d4a017;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+.annotation.arrow {
+  background: rgba(33, 150, 243, 0.3);
+  border: 2px solid #1976d2;
+  clip-path: polygon(0% 35%, 70% 35%, 70% 15%, 100% 50%, 70% 85%, 70% 65%, 0% 65%);
+}
+
+.annotation.heart {
+  background: rgba(233, 30, 99, 0.3);
+  border: 2px solid #c2185b;
+  clip-path: polygon(50% 92%, 90% 58%, 90% 30%, 75% 15%, 50% 28%, 25% 15%, 10% 30%, 10% 58%);
+}
+
+.annotation.cross {
+  background: rgba(255, 193, 7, 0.3);
+  border: 2px solid #ff8f00;
+  clip-path: polygon(35% 0%, 65% 0%, 65% 35%, 100% 35%, 100% 65%, 65% 65%, 65% 100%, 35% 100%, 35% 65%, 0% 65%, 0% 35%, 35% 35%);
+}
+
+.annotation.parallelogram {
+  background: rgba(156, 39, 176, 0.24);
+  border: 2px solid #7b1fa2;
+  clip-path: polygon(18% 0%, 100% 0%, 82% 100%, 0% 100%);
+}
+
+.annotation.trapezoid {
+  background: rgba(3, 169, 244, 0.22);
+  border: 2px solid #0288d1;
+  clip-path: polygon(18% 0%, 82% 0%, 100% 100%, 0% 100%);
+}
+
 .annotation.image img {
   width: 100%;
   height: 100%;
@@ -132,8 +275,113 @@ main {
   display: block;
 }
 
+.resize-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  right: -10px;
+  bottom: -10px;
+  background: #007acc;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  cursor: nwse-resize;
+}
+
+.resize-handle.right-middle {
+  right: -10px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+
+.resize-handle.bottom-middle {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: -10px;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
 footer {
   border-top: 1px solid #ddd;
   padding: 8px;
   font-size: 12px;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(20, 20, 20, 0.94);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.tooltip.hidden {
+  display: none;
+}
+
+.tooltip-target-active {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
+}
+
+.shape-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.shape-modal.hidden {
+  display: none;
+}
+
+.shape-modal-content {
+  width: min(720px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #d8d8d8;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+  padding: 12px;
+}
+
+.shape-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.shape-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.shape-grid button {
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  background: #fafafa;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.shape-grid button:hover {
+  background: #eaf4ff;
+  border-color: #8bb7da;
 }

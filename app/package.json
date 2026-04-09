@@ -5,6 +5,7 @@
   "description": "Local-first PDF desktop app foundation",
   "main": "src/main/main.js",
   "scripts": {
+    "dev": "electron .",
     "start": "electron .",
     "test": "python -m unittest discover -s python/tests -p \"test_*.py\"",
     "e2e": "playwright test",
