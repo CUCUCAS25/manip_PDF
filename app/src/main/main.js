@@ -77,6 +77,21 @@ function createWindow() {
     }
   });
 
+  // Diagnostics: utile quand le renderer ne démarre pas (JS error, ressource manquante, crash).
+  try {
+    mainWindow.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedURL) => {
+      log("main", "web:did-fail-load", { errorCode, errorDescription, url: validatedURL });
+    });
+    mainWindow.webContents.on("render-process-gone", (_, details) => {
+      log("main", "web:render-process-gone", details);
+    });
+    mainWindow.webContents.on("console-message", (_, level, message, line, sourceId) => {
+      log("renderer", "console-message", { level, message, line, sourceId });
+    });
+  } catch (error) {
+    log("main", "web:diagnostics:failed", { message: error?.message || String(error) });
+  }
+
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 }
 

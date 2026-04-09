@@ -1,3 +1,57 @@
+try {
+  window.maniPdfApi?.log?.("renderer:boot", { ts: new Date().toISOString() })?.catch?.(() => {});
+} catch {}
+
+window.addEventListener("error", (event) => {
+  try {
+    window.maniPdfApi?.log?.("renderer:window:error", {
+      message: event?.message || null,
+      filename: event?.filename || null,
+      lineno: event?.lineno || null,
+      colno: event?.colno || null
+    })?.catch?.(() => {});
+  } catch {}
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  try {
+    window.maniPdfApi?.log?.("renderer:unhandledrejection", {
+      message: event?.reason?.message || String(event?.reason || "")
+    })?.catch?.(() => {});
+  } catch {}
+});
+
+const lastUiEventLogAtByType = {
+  "ui:mousedown": 0,
+  "ui:click": 0,
+  "ui:dblclick": 0
+};
+function uiTargetSummary(target) {
+  try {
+    if (!target) return { target: "null" };
+    const tag = target?.tagName?.toLowerCase?.() || "unknown";
+    const id = target?.id ? `#${target.id}` : "";
+    const cls = target?.className ? `.${String(target.className).split(" ").filter(Boolean).slice(0, 2).join(".")}` : "";
+    const dataId = target?.closest?.("[data-id]")?.getAttribute?.("data-id") || null;
+    return { target: `${tag}${id}${cls}`, dataId };
+  } catch {
+    return { target: "error" };
+  }
+}
+
+function logUiEvent(type, event) {
+  const now = Date.now();
+  const last = lastUiEventLogAtByType[type] || 0;
+  if (now - last < 60) return;
+  lastUiEventLogAtByType[type] = now;
+  const sum = uiTargetSummary(event?.target);
+  log(type, { ...sum, x: event?.clientX ?? null, y: event?.clientY ?? null });
+}
+
+document.addEventListener("mousedown", (e) => logUiEvent("ui:mousedown", e), true);
+document.addEventListener("click", (e) => logUiEvent("ui:click", e), true);
+document.addEventListener("dblclick", (e) => logUiEvent("ui:dblclick", e), true);
+
 const openBtn = document.getElementById("openBtn");
 const languageBtn = document.getElementById("languageBtn");
 const welcomeScreen = document.getElementById("welcomeScreen");
@@ -26,18 +80,24 @@ const protectBtn = document.getElementById("protectBtn");
 const unprotectBtn = document.getElementById("unprotectBtn");
 const fitWidthBtn = document.getElementById("fitWidthBtn");
 const fitPageBtn = document.getElementById("fitPageBtn");
+const zoomOutBtn = document.getElementById("zoomOutBtn");
+const zoomInBtn = document.getElementById("zoomInBtn");
+const zoomInfo = document.getElementById("zoomInfo");
 const saveSessionBtn = document.getElementById("saveSessionBtn");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const pageInfo = document.getElementById("pageInfo");
 const statusBar = document.getElementById("statusBar");
+const statusText = document.getElementById("statusText");
 const tabs = document.getElementById("tabs");
-const pdfCanvas = document.getElementById("pdfCanvas");
-const annotationLayer = document.getElementById("annotationLayer");
+const viewer = document.querySelector(".viewer");
+const pagesContainer = document.getElementById("pagesContainer");
+let pdfCanvas = null;
+let annotationLayer = null;
+let dropOverlay = null;
 const jobsPanel = document.getElementById("jobsPanel");
 const sensitivePanel = document.getElementById("sensitivePanel");
 const toolTip = document.getElementById("toolTip");
-const dropOverlay = document.getElementById("dropOverlay");
 const shapeModal = document.getElementById("shapeModal");
 const shapeGrid = document.getElementById("shapeGrid");
 const closeShapeModalBtn = document.getElementById("closeShapeModalBtn");
@@ -52,12 +112,29 @@ const state = {
   selectedAnnotationId: null,
   editingAnnotationId: null,
   zoomMode: "page-width",
+  zoomScale: 1,
   language: "fr"
 };
 let autosaveDebounce = null;
 let interactionMode = null; // "drag" | "resize" | null
 let suppressClickUntil = 0;
 let activePointerCleanup = null;
+let pendingZoomAnchor = null;
+let activePdfRenderToken = 0;
+let activePdfRenderTasks = [];
+let pendingSingleClickRenderTimer = null;
+let lastTextClickAt = 0;
+let lastTextClickId = null;
+let lastTextMouseDownAt = 0;
+let lastTextMouseDownId = null;
+
+function cancelPointerInteraction() {
+  try {
+    if (activePointerCleanup) activePointerCleanup();
+  } catch {}
+  activePointerCleanup = null;
+  interactionMode = null;
+}
 
 const I18N = {
   fr: { language: "🌐 Langue: FR", open: "📂 Ouvrir PDF", addText: "🔤 + Texte", addShape: "🔷 + Forme", addImage: "🖼️ + Image", del: "🗑️ Supprimer", width: "Largeur", height: "Hauteur", rotation: "Rotation", opacity: "Opacite (%)", txt: "Txt", bg: "Fond", pad: "Marges", font: "Police", size: "Taille", apply: "✅ Appliquer", fitW: "↔️ Fit largeur", fitP: "🗐 Fit page", noPdf: "Aucun PDF", ready: "Pret", choose: "Choisir la langue:\n1. Francais\n2. English\n3. Espanol\n4. Portugues" },
@@ -116,7 +193,8 @@ function setLanguage(lang) {
 }
 
 function getSafeZoneSize() {
-  const rect = annotationLayer.getBoundingClientRect();
+  const rect = annotationLayer?.getBoundingClientRect?.();
+  if (!rect) return { width: 0, height: 0 };
   return {
     width: Math.max(0, Math.floor(rect.width)),
     height: Math.max(0, Math.floor(rect.height))
@@ -193,7 +271,39 @@ function enforceSafeZoneForActiveTab() {
 }
 
 function setStatus(message) {
-  statusBar.textContent = message;
+  if (statusText) statusText.textContent = message;
+  else statusBar.textContent = message;
+}
+
+function captureZoomAnchor() {
+  if (!viewer) return null;
+  return {
+    centerX: (viewer.scrollLeft || 0) + viewer.clientWidth / 2,
+    centerY: (viewer.scrollTop || 0) + viewer.clientHeight / 2,
+    prevScrollW: viewer.scrollWidth || 0,
+    prevScrollH: viewer.scrollHeight || 0
+  };
+}
+
+function applyZoomAnchorIfAny() {
+  if (!pendingZoomAnchor || !viewer) return;
+  const { centerX, centerY, prevScrollW, prevScrollH } = pendingZoomAnchor;
+  pendingZoomAnchor = null;
+  const nextScrollW = viewer.scrollWidth || 0;
+  const nextScrollH = viewer.scrollHeight || 0;
+  if (prevScrollW <= 0 || prevScrollH <= 0 || nextScrollW <= 0 || nextScrollH <= 0) return;
+
+  const rx = nextScrollW / prevScrollW;
+  const ry = nextScrollH / prevScrollH;
+  if (!Number.isFinite(rx) || !Number.isFinite(ry) || rx <= 0 || ry <= 0) return;
+
+  const targetCenterX = centerX * rx;
+  const targetCenterY = centerY * ry;
+  const nextLeft = targetCenterX - viewer.clientWidth / 2;
+  const nextTop = targetCenterY - viewer.clientHeight / 2;
+
+  viewer.scrollLeft = Math.max(0, Math.min(nextLeft, Math.max(0, nextScrollW - viewer.clientWidth)));
+  viewer.scrollTop = Math.max(0, Math.min(nextTop, Math.max(0, nextScrollH - viewer.clientHeight)));
 }
 
 function updateWelcomeVisibility() {
@@ -210,7 +320,9 @@ function log(message, data) {
   try {
     console.log("[renderer]", message, data || "");
   } catch {}
-  window.maniPdfApi.log(message, data).catch(() => {});
+  try {
+    window.maniPdfApi?.log?.(message, data)?.catch?.(() => {});
+  } catch {}
 }
 
 function scheduleAutoSave() {
@@ -318,7 +430,20 @@ function renderTabs() {
   state.tabs.forEach((tab) => {
     const node = document.createElement("button");
     node.className = `tab ${tab.id === state.activeTabId ? "active" : ""}`;
-    node.textContent = tab.name;
+    const label = document.createElement("span");
+    label.textContent = tab.name;
+    node.appendChild(label);
+
+    const closeBtn = document.createElement("span");
+    closeBtn.className = "tab-close";
+    closeBtn.textContent = "✕";
+    closeBtn.title = "Retirer ce PDF";
+    closeBtn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeTab(tab.id);
+    };
+    node.appendChild(closeBtn);
     node.onclick = () => {
       state.activeTabId = tab.id;
       updateViewer();
@@ -328,25 +453,65 @@ function renderTabs() {
   });
 }
 
+function removeTab(tabId) {
+  const idx = state.tabs.findIndex((t) => t.id === tabId);
+  if (idx < 0) return;
+  const removed = state.tabs[idx];
+  state.tabs.splice(idx, 1);
+  log("tab:remove", { tabId, name: removed?.name || null });
+
+  if (state.activeTabId === tabId) {
+    state.activeTabId = state.tabs[0]?.id || null;
+    state.selectedAnnotationId = null;
+    state.editingAnnotationId = null;
+  }
+
+  renderTabs();
+  updateViewer();
+  updateWelcomeVisibility();
+  scheduleAutoSave();
+}
+
 function updateViewer() {
   const tab = getActiveTab();
   if (!tab) {
-    if (pdfCanvas) {
-      const ctx = pdfCanvas.getContext?.("2d");
-      if (ctx) ctx.clearRect(0, 0, pdfCanvas.width || 0, pdfCanvas.height || 0);
-    }
-    annotationLayer.innerHTML = "";
+    if (pagesContainer) pagesContainer.innerHTML = "";
     pageInfo.textContent = t("noPdf");
     return;
   }
-  const page = tab.currentPage || 1;
-  renderPdfPage(tab.path, page).catch((err) => {
+  renderPdfDocument(tab.path).catch((err) => {
     setStatus("Erreur rendu PDF.");
     log("pdf:render:failed", { message: err?.message || String(err) });
   });
-  pageInfo.textContent = `Page ${page}`;
-  enforceSafeZoneForActiveTab();
-  renderAnnotations();
+  pageInfo.textContent = `Page ${tab.currentPage || 1}`;
+}
+
+function clampZoomScale(value) {
+  return clamp(Number(value) || 1, 0.25, 4);
+}
+
+function updateZoomUI() {
+  if (!zoomInfo) return;
+  const pct = Math.round((state.zoomScale || 1) * 100);
+  zoomInfo.textContent = `${pct}%`;
+}
+
+function setZoomScale(next, source = "ui") {
+  const prev = state.zoomScale || 1;
+  pendingZoomAnchor = captureZoomAnchor();
+  state.zoomScale = clampZoomScale(next);
+  if (prev === state.zoomScale) return;
+  updateZoomUI();
+  log("zoom:set", { source, scale: state.zoomScale });
+  if (getActiveTab()) updateViewer();
+}
+
+function zoomByWheelDelta(deltaY) {
+  // deltaY < 0 => wheel up => zoom in
+  const direction = deltaY < 0 ? 1 : -1;
+  const step = 1.1;
+  const next = (state.zoomScale || 1) * (direction > 0 ? step : 1 / step);
+  setZoomScale(next, "ctrl+wheel");
 }
 
 function setZoomMode(mode) {
@@ -396,41 +561,107 @@ async function loadPdfDocument(pdfPath) {
   return doc;
 }
 
-async function renderPdfPage(pdfPath, pageNumber) {
-  if (!pdfCanvas) return;
+function ensureOverlaysOn(pageNode) {
+  if (!pageNode) return;
+  if (!annotationLayer) {
+    annotationLayer = document.createElement("div");
+    annotationLayer.id = "annotationLayer";
+  }
+  if (!dropOverlay) {
+    dropOverlay = document.createElement("div");
+    dropOverlay.id = "dropOverlay";
+    dropOverlay.setAttribute("aria-hidden", "true");
+  }
+  pageNode.appendChild(annotationLayer);
+  pageNode.appendChild(dropOverlay);
+  attachDropOverlayListeners(dropOverlay);
+}
+
+function setActivePage(pageNumber) {
   const tab = getActiveTab();
-  if (!tab) return;
-  log("pdf:render:start", { page: pageNumber });
+  if (!tab || !pagesContainer) return;
+  tab.currentPage = pageNumber;
+  pageInfo.textContent = `Page ${pageNumber}`;
 
-  const doc = await loadPdfDocument(pdfPath);
-  const page = await doc.getPage(pageNumber);
+  pagesContainer.querySelectorAll(".pdf-page").forEach((p) => p.classList.remove("active"));
+  const active = pagesContainer.querySelector(`.pdf-page[data-page="${pageNumber}"]`);
+  if (active) active.classList.add("active");
 
-  // On calcule le scale sur la largeur dispo du conteneur (scrollable),
-  // mais on laisse le canvas conserver son ratio (pas de stretch CSS).
-  const container = pdfCanvas.parentElement;
-  const containerWidth = Math.max(1, Math.floor(container?.clientWidth || 1));
-  const targetWidth = containerWidth;
-  const baseViewport = page.getViewport({ scale: 1 });
-  const scale = targetWidth / baseViewport.width;
-  const viewport = page.getViewport({ scale: Number.isFinite(scale) && scale > 0 ? scale : 1 });
+  ensureOverlaysOn(active);
+  pdfCanvas = active?.querySelector?.("canvas") || null;
 
-  pdfCanvas.width = Math.floor(viewport.width);
-  pdfCanvas.height = Math.floor(viewport.height);
-  // Fix anti-étirement: on force les dimensions CSS à matcher le buffer.
-  pdfCanvas.style.width = `${pdfCanvas.width}px`;
-  pdfCanvas.style.height = `${pdfCanvas.height}px`;
-
-  // Ajuster la zone d'annotations sur la taille rendue (safe zone)
-  annotationLayer.style.width = `${pdfCanvas.width}px`;
-  annotationLayer.style.height = `${pdfCanvas.height}px`;
-  if (dropOverlay) {
+  if (pdfCanvas && annotationLayer) {
+    annotationLayer.style.width = `${pdfCanvas.width}px`;
+    annotationLayer.style.height = `${pdfCanvas.height}px`;
+  }
+  if (pdfCanvas && dropOverlay) {
     dropOverlay.style.width = `${pdfCanvas.width}px`;
     dropOverlay.style.height = `${pdfCanvas.height}px`;
   }
 
-  const ctx = pdfCanvas.getContext("2d", { alpha: false });
-  await page.render({ canvasContext: ctx, viewport }).promise;
-  log("pdf:render:done", { page: pageNumber, w: pdfCanvas.width, h: pdfCanvas.height });
+  enforceSafeZoneForActiveTab();
+  renderAnnotations();
+}
+
+async function renderPdfDocument(pdfPath) {
+  if (!pagesContainer) return;
+  const tab = getActiveTab();
+  if (!tab) return;
+  log("pdf:render:start", { mode: "document" });
+
+  // Annuler les renders en cours (zoom/resize rapides)
+  activePdfRenderToken += 1;
+  const token = activePdfRenderToken;
+  try {
+    activePdfRenderTasks.forEach((t) => t?.cancel?.());
+  } catch {}
+  activePdfRenderTasks = [];
+
+  const doc = await loadPdfDocument(pdfPath);
+  const count = doc.numPages || 1;
+  tab.pageCount = count;
+  const containerWidth = Math.max(1, Math.floor((viewer?.clientWidth || 1) - 24));
+
+  pagesContainer.innerHTML = "";
+
+  for (let pageNumber = 1; pageNumber <= count; pageNumber += 1) {
+    if (token !== activePdfRenderToken) return;
+    const page = await doc.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const baseScale = containerWidth / baseViewport.width;
+    const scale = baseScale * (state.zoomScale || 1);
+    const viewport = page.getViewport({ scale: Number.isFinite(scale) && scale > 0 ? scale : 1 });
+
+    const pageNode = document.createElement("div");
+    pageNode.className = "pdf-page";
+    pageNode.dataset.page = String(pageNumber);
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "pdf-canvas";
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    pageNode.style.width = `${canvas.width}px`;
+    pageNode.style.height = `${canvas.height}px`;
+    pageNode.appendChild(canvas);
+
+    pageNode.addEventListener("mousedown", () => setActivePage(pageNumber));
+
+    pagesContainer.appendChild(pageNode);
+
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const task = page.render({ canvasContext: ctx, viewport });
+    activePdfRenderTasks.push(task);
+    try {
+      await task.promise;
+    } finally {
+      // cleanup best-effort
+      activePdfRenderTasks = activePdfRenderTasks.filter((t) => t !== task);
+    }
+  }
+
+  log("pdf:render:done", { pages: count });
+  setActivePage(tab.currentPage || 1);
+  applyZoomAnchorIfAny();
 }
 
 async function addPdfTab(filePath, fileName) {
@@ -594,6 +825,7 @@ function applySnapshot(tab, snapshot) {
 }
 
 function renderAnnotations() {
+  if (!annotationLayer) return;
   annotationLayer.innerHTML = "";
   const tab = getActiveTab();
   if (!tab) return;
@@ -611,37 +843,175 @@ function renderAnnotations() {
 
     if (a.type === "text") {
       const isEditing = state.editingAnnotationId === a.id;
-      node.contentEditable = isEditing ? "true" : "false";
+      // En mode édition, forcer le mode texte pour éviter des comportements HTML.
+      // "plaintext-only" est supporté par Chromium; fallback sur "true" si ignoré.
+      node.setAttribute("contenteditable", isEditing ? "plaintext-only" : "false");
+      // IMPORTANT: sous Electron, l'attribut seul peut être insuffisant selon les builds.
+      // On force aussi la propriété DOM.
+      try {
+        node.contentEditable = isEditing ? "true" : "false";
+      } catch {}
       if (isEditing) node.classList.add("editing");
-      node.textContent = a.text || "Nouveau texte";
+      // Placeholder visuel uniquement (CSS). Ne jamais le stocker dans a.text.
+      node.textContent = a.text ? a.text : "";
+      node.dataset.placeholder = "Nouveau texte";
       node.style.color = a.textColor || "#111111";
-      node.style.backgroundColor = a.bgColor || "#fff8a6";
+      // Par défaut pas de fond: on veut un rendu "écrit sur le document".
+      node.style.backgroundColor = a.bgColor ? a.bgColor : "transparent";
       node.style.padding = `${a.padding ?? 6}px`;
       node.style.fontFamily = a.fontFamily || "Arial";
       node.style.fontSize = `${a.fontSize ?? 14}px`;
+      // En mode édition, c'est le textarea qui doit recevoir le focus (pas le div).
+      node.tabIndex = isEditing ? -1 : 0;
+      node.onfocus = () => log("text:focus", { id: a.id, target: "div" });
       node.onblur = () => {
-        captureSnapshot(tab);
-        a.text = node.textContent || "";
-        state.editingAnnotationId = null;
-        renderAnnotations();
-        scheduleAutoSave();
+        log("text:blur", {
+          id: a.id,
+          active: document.activeElement?.tagName || null,
+          activeId: document.activeElement?.getAttribute?.("data-id") || null
+        });
+        // Ne PAS quitter automatiquement l'édition sur blur: Electron peut provoquer
+        // des blur intempestifs (menus/scroll/clic) et ça empêche de saisir.
+        // La sortie d'édition est gérée par le clic "hors zone" (listener global).
+        try {
+          captureSnapshot(tab);
+          a.text = node.textContent || "";
+          scheduleAutoSave();
+        } catch {}
       };
+      if (isEditing) {
+        // Mode édition robuste: textarea (plus fiable que contenteditable sous Electron)
+        node.setAttribute("contenteditable", "false");
+        try {
+          node.contentEditable = "false";
+        } catch {}
+        node.innerHTML = "";
+        const ta = document.createElement("textarea");
+        ta.className = "text-editor";
+        ta.value = a.text || "";
+        ta.spellcheck = false;
+        ta.wrap = "soft";
+        ta.addEventListener(
+          "focus",
+          () => {
+            log("text:focus", { id: a.id, target: "textarea" });
+          },
+          { capture: true }
+        );
+        ta.addEventListener(
+          "blur",
+          () => {
+            log("text:blur", { id: a.id, target: "textarea" });
+          },
+          { capture: true }
+        );
+        ta.addEventListener(
+          "keydown",
+          (event) => {
+            log("text:keydown", { id: a.id, key: event.key, ctrl: event.ctrlKey, meta: event.metaKey });
+          },
+          { capture: true }
+        );
+        ta.addEventListener(
+          "beforeinput",
+          (event) => {
+            log("text:beforeinput", {
+              id: a.id,
+              inputType: event.inputType || null,
+              dataLen: event.data ? String(event.data).length : 0
+            });
+          },
+          { capture: true }
+        );
+        ta.addEventListener(
+          "input",
+          () => {
+            log("text:input", { id: a.id, len: (ta.value || "").length });
+            a.text = ta.value || "";
+            // Garder le DOM en place: on ne rerender pas pendant la saisie.
+            scheduleAutoSave();
+          },
+          { capture: true }
+        );
+        ta.addEventListener(
+          "blur",
+          () => {
+            // On ne sort pas de l'édition ici (géré par clic hors zone).
+            try {
+              captureSnapshot(tab);
+              a.text = ta.value || "";
+              scheduleAutoSave();
+            } catch {}
+          },
+          { capture: true }
+        );
+        // Empêcher la logique de drag de capter le mousedown pendant l'édition.
+        ta.addEventListener(
+          "mousedown",
+          (event) => {
+            event.stopPropagation();
+          },
+          { capture: true }
+        );
+        node.appendChild(ta);
+        // Forcer le focus sur le textarea après insertion DOM.
+        requestAnimationFrame(() => {
+          try {
+            ta.focus();
+          } catch {}
+        });
+
+        node.addEventListener(
+          "beforeinput",
+          (event) => {
+            log("text:beforeinput", {
+              id: a.id,
+              inputType: event.inputType || null,
+              dataLen: event.data ? String(event.data).length : 0
+            });
+          },
+          { capture: true }
+        );
+        node.addEventListener(
+          "input",
+          () => {
+            log("text:input", { id: a.id, len: (node.textContent || "").length });
+          },
+          { capture: true }
+        );
+        node.addEventListener(
+          "keydown",
+          (event) => {
+            log("text:keydown", { id: a.id, key: event.key, ctrl: event.ctrlKey, meta: event.metaKey });
+          },
+          { capture: true }
+        );
+      }
       node.ondblclick = (event) => {
-        if (interactionMode) return;
+        log("text:dblclick", { id: a.id, interactionMode: interactionMode || null });
+        if (interactionMode && interactionMode !== "drag-pending") return;
         if (event.target.closest(".resize-handle")) return;
+        // CRITIQUE: évite que le listener global "clic hors zone" annule l'édition
+        // dans le même cycle d'événement.
+        try {
+          event.preventDefault();
+        } catch {}
         event.stopPropagation();
+        cancelPointerInteraction();
+        if (pendingSingleClickRenderTimer) {
+          clearTimeout(pendingSingleClickRenderTimer);
+          pendingSingleClickRenderTimer = null;
+        }
         state.selectedAnnotationId = a.id;
         state.editingAnnotationId = a.id;
-        // Si on est encore sur le texte placeholder, on le vide pour laisser l'utilisateur taper.
-        if (!a.text || a.text === "Nouveau texte" || a.isPlaceholder) {
-          a.text = "";
-          a.isPlaceholder = false;
-        }
         renderAnnotations();
         requestAnimationFrame(() => {
           const editNode = annotationLayer.querySelector(`[data-id="${a.id}"]`);
           if (editNode) {
-            editNode.focus();
+            // Focus textarea si présent, sinon fallback sur le node
+            const ta = editNode.querySelector("textarea.text-editor");
+            if (ta) ta.focus();
+            else editNode.focus();
           }
         });
       };
@@ -658,6 +1028,54 @@ function renderAnnotations() {
         event.stopPropagation();
         return;
       }
+
+      log("text:mousedown", {
+        id: a.id,
+        interactionMode: interactionMode || null,
+        x: event.clientX,
+        y: event.clientY
+      });
+
+      // Fallback ultra-robuste: on observe que "click/dblclick" ne se déclenche
+      // pas toujours sous Electron quand on amorce un drag (même léger).
+      // On passe donc en édition sur "double mousedown" rapide.
+      if (a.type === "text" && !event.target.closest(".resize-handle")) {
+        const now = Date.now();
+        const isSecondDown = lastTextMouseDownId === a.id && now - lastTextMouseDownAt <= 320;
+        log("text:mousedown:double-check", {
+          id: a.id,
+          isSecondDown,
+          dt: lastTextMouseDownAt ? now - lastTextMouseDownAt : null
+        });
+        lastTextMouseDownAt = now;
+        lastTextMouseDownId = a.id;
+        if (isSecondDown) {
+          log("text:edit:via-mousedown", { id: a.id });
+          // CRITIQUE: sinon le mousedown "bulle" et le listener global
+          // considère le clic comme "hors zone" (car le DOM est rerender),
+          // ce qui annule immédiatement l'édition.
+          try {
+            event.preventDefault();
+          } catch {}
+          event.stopPropagation();
+          state.selectedAnnotationId = a.id;
+          state.editingAnnotationId = a.id;
+          cancelPointerInteraction();
+          if (pendingSingleClickRenderTimer) {
+            clearTimeout(pendingSingleClickRenderTimer);
+            pendingSingleClickRenderTimer = null;
+          }
+          renderAnnotations();
+          requestAnimationFrame(() => {
+            const editNode = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
+            const ta = editNode?.querySelector?.("textarea.text-editor");
+            if (ta) ta.focus();
+            else editNode?.focus?.();
+          });
+          return;
+        }
+      }
+
       startDrag(event, a.id);
     };
     node.onclick = () => {
@@ -667,9 +1085,43 @@ function renderAnnotations() {
       if (a.type === "text" && state.editingAnnotationId === a.id) {
         return;
       }
+      log("annotation:click", { id: a.id, type: a.type, interactionMode: interactionMode || null });
       state.selectedAnnotationId = a.id;
       // Ne pas quitter le mode edition si on clique dans la case texte.
       syncPropertyInputs();
+      if (a.type === "text") {
+        const now = Date.now();
+        const isSecondClick = lastTextClickId === a.id && now - lastTextClickAt <= 320;
+        lastTextClickAt = now;
+        lastTextClickId = a.id;
+
+        // Fallback robuste: Electron/Chromium peut ne pas émettre "dblclick"
+        // si le DOM est rerender ou si un drag est amorcé.
+        if (isSecondClick) {
+          log("text:dblclick:emulated", { id: a.id });
+          if (pendingSingleClickRenderTimer) {
+            clearTimeout(pendingSingleClickRenderTimer);
+            pendingSingleClickRenderTimer = null;
+          }
+          state.editingAnnotationId = a.id;
+          cancelPointerInteraction();
+          renderAnnotations();
+          requestAnimationFrame(() => {
+            const editNode = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
+            const ta = editNode?.querySelector?.("textarea.text-editor");
+            if (ta) ta.focus();
+            else editNode?.focus?.();
+          });
+          return;
+        }
+
+        if (pendingSingleClickRenderTimer) clearTimeout(pendingSingleClickRenderTimer);
+        pendingSingleClickRenderTimer = setTimeout(() => {
+          pendingSingleClickRenderTimer = null;
+          renderAnnotations();
+        }, 260);
+        return;
+      }
       renderAnnotations();
     };
 
@@ -677,23 +1129,23 @@ function renderAnnotations() {
       state.selectedAnnotationId === a.id &&
       !(a.type === "text" && state.editingAnnotationId === a.id)
     ) {
-      const br = document.createElement("div");
-      br.className = "resize-handle";
-      br.dataset.mode = "br";
-      br.onmousedown = (event) => startResize(event, a.id, "br");
-      node.appendChild(br);
-
-      const right = document.createElement("div");
-      right.className = "resize-handle right-middle";
-      right.dataset.mode = "r";
-      right.onmousedown = (event) => startResize(event, a.id, "r");
-      node.appendChild(right);
-
-      const bottom = document.createElement("div");
-      bottom.className = "resize-handle bottom-middle";
-      bottom.dataset.mode = "b";
-      bottom.onmousedown = (event) => startResize(event, a.id, "b");
-      node.appendChild(bottom);
+      const handles = [
+        { mode: "tl", className: "resize-handle tl" },
+        { mode: "t", className: "resize-handle top-middle" },
+        { mode: "tr", className: "resize-handle tr" },
+        { mode: "l", className: "resize-handle left-middle" },
+        { mode: "r", className: "resize-handle right-middle" },
+        { mode: "bl", className: "resize-handle bl" },
+        { mode: "b", className: "resize-handle bottom-middle" },
+        { mode: "br", className: "resize-handle br" }
+      ];
+      handles.forEach((h) => {
+        const handle = document.createElement("div");
+        handle.className = h.className;
+        handle.dataset.mode = h.mode;
+        handle.onmousedown = (event) => startResize(event, a.id, h.mode);
+        node.appendChild(handle);
+      });
     }
     annotationLayer.appendChild(node);
   });
@@ -702,7 +1154,7 @@ function renderAnnotations() {
 function startDrag(event, id) {
   if (event.button !== 0) return;
   if (interactionMode) return;
-  event.preventDefault();
+  log("drag:startDrag:down", { id, target: event.target?.tagName || null });
   if (state.editingAnnotationId === id) return;
   if (event.target.classList?.contains("resize-handle")) return;
   const tab = getActiveTab();
@@ -710,14 +1162,29 @@ function startDrag(event, id) {
   const item = currentPageAnnotations(tab).find((a) => a.id === id);
   if (!item) return;
   state.selectedAnnotationId = id;
-  interactionMode = "drag";
+  // Ne pas preventDefault ici: sinon Chromium ne déclenche souvent pas le dblclick.
+  interactionMode = "drag-pending";
   const startX = event.clientX;
   const startY = event.clientY;
   const originX = item.x;
   const originY = item.y;
   captureSnapshot(tab);
+  let hasMoved = false;
 
   const move = (ev) => {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    const dist2 = dx * dx + dy * dy;
+    if (!hasMoved) {
+      // seuil anti "clic = drag" (permet dblclick fiable)
+      // 12px: évite qu'un léger tremblement annule le click/dblclick
+      if (dist2 < 144) return;
+      hasMoved = true;
+      interactionMode = "drag";
+      try {
+        ev.preventDefault();
+      } catch {}
+    }
     const zone = getSafeZoneSize();
     const maxX = Math.max(0, zone.width - item.w);
     const maxY = Math.max(0, zone.height - item.h);
@@ -729,7 +1196,8 @@ function startDrag(event, id) {
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", up);
     interactionMode = null;
-    suppressClickUntil = Date.now() + 180;
+    // Ne pas bloquer le click si on n'a pas réellement dragué.
+    suppressClickUntil = Date.now() + (hasMoved ? 180 : 0);
     activePointerCleanup = null;
     syncPropertyInputs();
     scheduleAutoSave();
@@ -752,32 +1220,69 @@ function startResize(event, id, mode = "br") {
   interactionMode = "resize";
   const startX = event.clientX;
   const startY = event.clientY;
+  const originX = item.x;
+  const originY = item.y;
   const originW = item.w;
   const originH = item.h;
   const originFontSize = item.fontSize ?? 14;
   const originPadding = item.padding ?? 6;
   const originUsableW = Math.max(1, originW - 2 * originPadding);
   const originUsableH = Math.max(1, originH - 2 * originPadding);
-  const fixedX = originW;
-  const fixedY = originH;
   captureSnapshot(tab);
 
   const move = (ev) => {
     const zone = getSafeZoneSize();
-    let nextW = item.w;
-    let nextH = item.h;
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    const minW = 20;
 
-    if (mode === "r" || mode === "br") {
-      nextW = Math.max(20, fixedX + (ev.clientX - startX));
+    let nextX = originX;
+    let nextY = originY;
+    let nextW = originW;
+    let nextH = originH;
+
+    const affectsLeft = mode === "l" || mode === "tl" || mode === "bl";
+    const affectsRight = mode === "r" || mode === "tr" || mode === "br";
+    const affectsTop = mode === "t" || mode === "tl" || mode === "tr";
+    const affectsBottom = mode === "b" || mode === "bl" || mode === "br";
+
+    if (affectsRight) nextW = originW + dx;
+    if (affectsBottom) nextH = originH + dy;
+    if (affectsLeft) {
+      nextX = originX + dx;
+      nextW = originW - dx;
     }
-    if (mode === "b" || mode === "br") {
-      nextH = Math.max(20, fixedY + (ev.clientY - startY));
+    if (affectsTop) {
+      nextY = originY + dy;
+      nextH = originH - dy;
     }
 
-    const maxAllowedW = Math.max(20, zone.width - item.x);
-    const maxAllowedH = Math.max(20, zone.height - item.y);
-    item.w = clamp(nextW, 20, maxAllowedW);
-    item.h = clamp(nextH, 20, maxAllowedH);
+    // Enforce min sizes by adjusting the anchored edge.
+    let minH = 20;
+    if (item.type === "text") {
+      const padding = item.padding ?? 6;
+      const fontSize = item.fontSize ?? 14;
+      minH = Math.max(minH, Math.ceil(fontSize * 1.45 + 2 * padding));
+    }
+    if (nextW < minW) {
+      if (affectsLeft) nextX -= minW - nextW;
+      nextW = minW;
+    }
+    if (nextH < minH) {
+      if (affectsTop) nextY -= minH - nextH;
+      nextH = minH;
+    }
+
+    // Clamp within safe zone
+    nextX = clamp(nextX, 0, Math.max(0, zone.width - nextW));
+    nextY = clamp(nextY, 0, Math.max(0, zone.height - nextH));
+    nextW = clamp(nextW, minW, Math.max(minW, zone.width - nextX));
+    nextH = clamp(nextH, minH, Math.max(minH, zone.height - nextY));
+
+    item.x = nextX;
+    item.y = nextY;
+    item.w = nextW;
+    item.h = nextH;
     if (item.type === "text") {
       // Auto-fit MVP: resize plus petit => font-size reduit pour rester lisible.
       const padding = item.padding ?? 6;
@@ -824,11 +1329,11 @@ function addAnnotation(type, extra = {}) {
     rotation: 0,
     opacity: 100,
     textColor: "#111111",
-    bgColor: "#fff8a6",
+    bgColor: null,
     padding: 6,
     fontFamily: "Arial",
     fontSize: 14,
-    isPlaceholder: type === "text" && (!extra.text || extra.text === "Nouveau texte"),
+    text: type === "text" ? "" : undefined,
     ...extra
   };
   const zone = getSafeZoneSize();
@@ -907,6 +1412,8 @@ function syncPropertyInputs() {
   propOpacity.value = String(Math.round(item.opacity ?? 100));
   propTextColor.value = item.textColor || "#111111";
   propBgColor.value = item.bgColor || "#fff8a6";
+  // Le champ Fond n'est appliqué que si l'utilisateur le modifie explicitement.
+  propBgColor.dataset.touched = "0";
   propPadding.value = String(Math.round(item.padding ?? 6));
   if (item.type === "text") {
     propFontFamily.value = item.fontFamily || "Arial";
@@ -934,18 +1441,15 @@ function applySelectedProperties() {
       selection.anchorNode &&
       annotationLayer.contains(selection.anchorNode);
 
-    // Règle demandée:
-    // - texte sélectionné + changement de couleur => couleur du texte
-    // - clic simple sur le bloc + changement de couleur => couleur de fond
-    if (hasSelection) {
+    // Couleur "Txt" = couleur du texte (toujours).
+    // (La couleur de fond est gérée uniquement via le champ "Fond".)
+    if (hasSelection || !hasSelection) {
       item.textColor = propTextColor.value || "#111111";
-    } else {
-      item.bgColor = propTextColor.value || "#fff8a6";
     }
 
     // Le champ "Fond" reste un override explicite du fond du bloc.
-    if (propBgColor.value) {
-      item.bgColor = propBgColor.value;
+    if (propBgColor.dataset.touched === "1") {
+      item.bgColor = propBgColor.value ? propBgColor.value : null;
     }
 
     item.padding = Math.max(0, Math.min(64, Number(propPadding.value) || 0));
@@ -965,8 +1469,12 @@ function applySelectedPropertiesLive() {
 function pageShift(delta) {
   const tab = getActiveTab();
   if (!tab) return;
-  tab.currentPage = Math.max(1, (tab.currentPage || 1) + delta);
-  updateViewer();
+  const next = (tab.currentPage || 1) + delta;
+  const max = tab.pageCount ? Math.max(1, tab.pageCount) : next;
+  tab.currentPage = clamp(next, 1, max);
+  setActivePage(tab.currentPage);
+  const active = pagesContainer?.querySelector?.(`.pdf-page[data-page="${tab.currentPage}"]`);
+  active?.scrollIntoView?.({ block: "start", inline: "nearest" });
 }
 
 async function saveSession() {
@@ -1001,76 +1509,96 @@ async function loadSession() {
   }
 }
 
-openBtn.addEventListener("click", promptOpenPdf);
-languageBtn.addEventListener("click", pickLanguage);
-welcomeOpenBtn.addEventListener("click", promptOpenPdf);
+openBtn?.addEventListener?.("click", promptOpenPdf);
+languageBtn?.addEventListener?.("click", pickLanguage);
+welcomeOpenBtn?.addEventListener?.("click", promptOpenPdf);
 
-saveSessionBtn.addEventListener("click", saveSession);
-prevBtn.addEventListener("click", () => pageShift(-1));
-nextBtn.addEventListener("click", () => pageShift(1));
-addTextBtn.addEventListener("click", () => addAnnotation("text", { text: "Nouveau texte" }));
-addShapeBtn.addEventListener("click", openShapePicker);
-addImageBtn.addEventListener("click", () => imageInput.click());
-imageInput.addEventListener("change", (event) => {
+saveSessionBtn?.addEventListener?.("click", saveSession);
+prevBtn?.addEventListener?.("click", () => pageShift(-1));
+nextBtn?.addEventListener?.("click", () => pageShift(1));
+addTextBtn?.addEventListener?.("click", () => addAnnotation("text"));
+addShapeBtn?.addEventListener?.("click", openShapePicker);
+addImageBtn?.addEventListener?.("click", () => imageInput?.click?.());
+imageInput?.addEventListener?.("change", (event) => {
   const file = event.target.files[0];
   if (!file) return;
   const src = URL.createObjectURL(file);
   addAnnotation("image", { src });
   imageInput.value = "";
 });
-deleteSelectedBtn.addEventListener("click", deleteSelected);
-undoBtn.addEventListener("click", undo);
-redoBtn.addEventListener("click", redo);
-applyPropsBtn.addEventListener("click", applySelectedProperties);
-propWidth.addEventListener("input", applySelectedPropertiesLive);
-propHeight.addEventListener("input", applySelectedPropertiesLive);
-propRotation.addEventListener("input", applySelectedPropertiesLive);
-propOpacity.addEventListener("input", applySelectedPropertiesLive);
-propTextColor.addEventListener("input", applySelectedPropertiesLive);
-propBgColor.addEventListener("input", applySelectedPropertiesLive);
-propPadding.addEventListener("input", applySelectedPropertiesLive);
-propFontFamily.addEventListener("change", applySelectedPropertiesLive);
-propFontSize.addEventListener("input", applySelectedPropertiesLive);
-mergeBtn.addEventListener("click", createMergeJob);
-splitBtn.addEventListener("click", createSplitJob);
-compressBtn.addEventListener("click", createCompressJob);
-protectBtn.addEventListener("click", createProtectJob);
-unprotectBtn.addEventListener("click", createUnprotectJob);
-fitWidthBtn.addEventListener("click", () => setZoomMode("page-width"));
-fitPageBtn.addEventListener("click", () => setZoomMode("page-fit"));
-closeShapeModalBtn.addEventListener("click", closeShapePicker);
-shapeModal.addEventListener("mousedown", (event) => {
+deleteSelectedBtn?.addEventListener?.("click", deleteSelected);
+undoBtn?.addEventListener?.("click", undo);
+redoBtn?.addEventListener?.("click", redo);
+applyPropsBtn?.addEventListener?.("click", applySelectedProperties);
+propWidth?.addEventListener?.("input", applySelectedPropertiesLive);
+propHeight?.addEventListener?.("input", applySelectedPropertiesLive);
+propRotation?.addEventListener?.("input", applySelectedPropertiesLive);
+propOpacity?.addEventListener?.("input", applySelectedPropertiesLive);
+propTextColor?.addEventListener?.("input", applySelectedPropertiesLive);
+propBgColor?.addEventListener?.("input", applySelectedPropertiesLive);
+propBgColor?.addEventListener?.("input", () => {
+  propBgColor.dataset.touched = "1";
+});
+propPadding?.addEventListener?.("input", applySelectedPropertiesLive);
+propFontFamily?.addEventListener?.("change", applySelectedPropertiesLive);
+propFontSize?.addEventListener?.("input", applySelectedPropertiesLive);
+mergeBtn?.addEventListener?.("click", createMergeJob);
+splitBtn?.addEventListener?.("click", createSplitJob);
+compressBtn?.addEventListener?.("click", createCompressJob);
+protectBtn?.addEventListener?.("click", createProtectJob);
+unprotectBtn?.addEventListener?.("click", createUnprotectJob);
+fitWidthBtn?.addEventListener?.("click", () => setZoomMode("page-width"));
+fitPageBtn?.addEventListener?.("click", () => setZoomMode("page-fit"));
+zoomOutBtn?.addEventListener?.("click", () => setZoomScale((state.zoomScale || 1) / 1.1, "btn-"));
+zoomInBtn?.addEventListener?.("click", () => setZoomScale((state.zoomScale || 1) * 1.1, "btn+"));
+closeShapeModalBtn?.addEventListener?.("click", closeShapePicker);
+shapeModal?.addEventListener?.("mousedown", (event) => {
   if (event.target === shapeModal) closeShapePicker();
 });
-shapeGrid.addEventListener("click", (event) => {
+shapeGrid?.addEventListener?.("click", (event) => {
   const btn = event.target.closest("button[data-shape]");
   if (!btn) return;
   addShapeByType(btn.dataset.shape);
 });
-closeLanguageModalBtn.addEventListener("click", closeLanguagePicker);
-languageModal.addEventListener("mousedown", (event) => {
+closeLanguageModalBtn?.addEventListener?.("click", closeLanguagePicker);
+languageModal?.addEventListener?.("mousedown", (event) => {
   if (event.target === languageModal) closeLanguagePicker();
 });
-languageGrid.addEventListener("click", (event) => {
+languageGrid?.addEventListener?.("click", (event) => {
   const btn = event.target.closest("button[data-lang]");
   if (!btn) return;
   setLanguage(btn.dataset.lang);
 });
 
-window.maniPdfApi.onOpenFromMenu(async (filePath) => {
+window.maniPdfApi?.onOpenFromMenu?.(async (filePath) => {
   log("onOpenFromMenu", { filePath });
   const name = filePath.split("\\").pop() || "document.pdf";
   await addPdfTab(filePath, name);
 });
 
-window.maniPdfApi.onAutosaveRequested(saveSession);
-window.maniPdfApi.onSaveRequested(saveSession);
+window.maniPdfApi?.onAutosaveRequested?.(saveSession);
+window.maniPdfApi?.onSaveRequested?.(saveSession);
 
 // Quitte le mode edition texte uniquement si clic en dehors de la case texte en edition.
 document.addEventListener("mousedown", (event) => {
   if (!state.editingAnnotationId) return;
-  const editingNode = annotationLayer.querySelector(`[data-id="${state.editingAnnotationId}"]`);
+  const editingNode = annotationLayer?.querySelector?.(`[data-id="${state.editingAnnotationId}"]`);
   if (!editingNode) return;
+  // IMPORTANT: si l'événement provient de l'annotation en édition (même avant rerender),
+  // le composedPath contient l'ancien node avec le bon data-id. Ça évite de quitter
+  // l'édition immédiatement quand on bascule en édition sur mousedown/dblclick.
+  try {
+    const path = event.composedPath?.() || [];
+    const editingId = String(state.editingAnnotationId);
+    const hit = path.some((el) => {
+      try {
+        return el?.getAttribute?.("data-id") === editingId;
+      } catch {
+        return false;
+      }
+    });
+    if (hit) return;
+  } catch {}
   if (editingNode.contains(event.target)) return;
   state.editingAnnotationId = null;
   renderAnnotations();
@@ -1184,11 +1712,30 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", () => {
-  enforceSafeZoneForActiveTab();
+  // En plein écran / redimensionnement, recalculer le rendu PDF pour éviter
+  // les marges “figées” (canvas basé sur l'ancienne largeur).
+  if (window.__maniPdfResizeDebounce) clearTimeout(window.__maniPdfResizeDebounce);
+  window.__maniPdfResizeDebounce = setTimeout(() => {
+    if (!getActiveTab()) return;
+    updateViewer();
+  }, 120);
 });
 window.addEventListener("blur", () => {
   if (activePointerCleanup) activePointerCleanup();
 });
+
+window.addEventListener(
+  "wheel",
+  (event) => {
+    if (!event.ctrlKey) return;
+    // Limiter au viewer pour éviter de casser le scroll ailleurs
+    const inViewer = event.target?.closest?.(".viewer");
+    if (!inViewer) return;
+    event.preventDefault();
+    zoomByWheelDelta(event.deltaY);
+  },
+  { passive: false }
+);
 
 function insertTextAtCaret(text) {
   try {
@@ -1234,6 +1781,43 @@ function trySetCaretFromPoint(container, clientX, clientY) {
     }
   } catch {}
   return false;
+}
+
+function attachDropOverlayListeners(node) {
+  if (!node || !node.addEventListener) return;
+  if (node.dataset?.dndAttached === "1") return;
+  if (!annotationLayer) return;
+  node.dataset.dndAttached = "1";
+
+  const allowDrop = (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  };
+
+  const overlayAllow = (event) => {
+    allowDrop(event);
+    const active = Boolean(state.editingAnnotationId);
+    if (!active) return;
+  };
+
+  node.addEventListener("dragenter", overlayAllow, true);
+  node.addEventListener("dragover", overlayAllow, true);
+  node.addEventListener(
+    "drop",
+    (event) => {
+      allowDrop(event);
+      const textPlain = event.dataTransfer?.getData("text/plain") || "";
+      const text = textPlain.trim();
+
+      if (!state.editingAnnotationId) return;
+      const editingNode = annotationLayer.querySelector?.(`[data-id="${state.editingAnnotationId}"]`);
+      if (!editingNode) return;
+      editingNode.focus();
+      trySetCaretFromPoint(editingNode, event.clientX, event.clientY);
+      if (text) insertTextAtCaret(text);
+    },
+    true
+  );
 }
 
 function setupDragAndDrop() {
@@ -1320,98 +1904,6 @@ function setupDragAndDrop() {
 
   // PDF rendu en canvas => plus besoin d'attacher des listeners spécifiques au viewer.
 
-  annotationLayer.addEventListener("dragenter", (event) => {
-    allowDrop(event);
-    log("dnd:dragenter", {
-      editing: Boolean(state.editingAnnotationId),
-      types: Array.from(event.dataTransfer?.types || [])
-    });
-  });
-  annotationLayer.addEventListener("dragover", allowDrop);
-  annotationLayer.addEventListener("dragleave", (event) => {
-    event.preventDefault();
-    log("dnd:dragleave");
-  });
-  annotationLayer.addEventListener("drop", (event) => {
-    allowDrop(event);
-    const types = Array.from(event.dataTransfer?.types || []);
-
-    const textPlain = event.dataTransfer?.getData("text/plain") || "";
-    const text = textPlain.trim();
-
-    // Cas principal: drop de texte dans une annotation texte en mode édition.
-    if (state.editingAnnotationId && text) {
-      log("dnd:drop:text", { len: text.length, types });
-      insertTextAtCaret(text);
-      return;
-    }
-
-    // Sinon on ne fait rien fonctionnellement, mais on log pour debug.
-    // (Ex: drop fichier depuis l'explorateur, html, etc.)
-    const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files).map((f) => f.name) : [];
-    log("dnd:drop:ignored", { types, filesCount: files.length, files: files.slice(0, 3) });
-  });
-
-  // Overlay dédié: placé AU-DESSUS du <embed>, il capte les drags même quand
-  // le plugin PDF intercepte les événements.
-  if (dropOverlay && dropOverlay.addEventListener) {
-    const overlayAllow = (event) => {
-      allowDrop(event);
-      // On ne veut l'overlay "actif" que si on est en train d'éditer du texte.
-      // Sinon, il serait trop intrusif.
-      const active = Boolean(state.editingAnnotationId);
-      if (!active) {
-        log("dnd:overlay:ignored", { reason: "not-editing" });
-        return;
-      }
-      logDragOver(event, "overlay");
-    };
-
-    dropOverlay.addEventListener("dragenter", overlayAllow, true);
-    dropOverlay.addEventListener("dragover", overlayAllow, true);
-    dropOverlay.addEventListener(
-      "drop",
-      (event) => {
-        allowDrop(event);
-        const types = Array.from(event.dataTransfer?.types || []);
-        const textPlain = event.dataTransfer?.getData("text/plain") || "";
-        const text = textPlain.trim();
-
-        const tab = getActiveTab();
-        if (!tab || !state.editingAnnotationId) {
-          log("dnd:overlay:drop:ignored", { reason: "no-editing", types, len: text.length });
-          return;
-        }
-
-        const editingNode = annotationLayer.querySelector(`[data-id="${state.editingAnnotationId}"]`);
-        if (editingNode) {
-          editingNode.focus();
-          trySetCaretFromPoint(editingNode, event.clientX, event.clientY);
-        }
-
-        if (text) {
-          log("dnd:overlay:drop:text", { len: text.length, types });
-          insertTextAtCaret(text);
-          return;
-        }
-
-        const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files).map((f) => f.name) : [];
-        log("dnd:overlay:drop:ignored", { types, filesCount: files.length, files: files.slice(0, 3) });
-      },
-      true
-    );
-    dropOverlay.addEventListener(
-      "dragleave",
-      (event) => {
-        event.preventDefault();
-        log("dnd:overlay:dragleave");
-      },
-      true
-    );
-  } else {
-    log("dnd:overlay:missing");
-  }
-
   log("dnd:setup:done", {
     hasPdfCanvas: Boolean(pdfCanvas),
     hasAnnotationLayer: Boolean(annotationLayer),
@@ -1424,6 +1916,7 @@ function setupDragAndDrop() {
 
 log("app:init");
 applyLanguage();
+updateZoomUI();
 updateWelcomeVisibility();
 loadSession();
 refreshJobs();

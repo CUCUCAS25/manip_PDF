@@ -62,13 +62,18 @@
       <section id="jobsPanel"></section>
       <section id="sensitivePanel"></section>
       <section class="viewer">
-        <canvas id="pdfCanvas"></canvas>
-        <div id="annotationLayer"></div>
-        <div id="dropOverlay" aria-hidden="true"></div>
+        <div id="pagesContainer" class="pages-container" aria-label="Pages du document"></div>
       </section>
     </main>
 
-    <footer id="statusBar">Pret</footer>
+    <footer id="statusBar">
+      <span id="statusText">Pret</span>
+      <div class="status-zoom" aria-label="Contrôles de zoom">
+        <button id="zoomOutBtn" data-tooltip="Dézoome le document. Raccourci: Ctrl + molette.">➖</button>
+        <span id="zoomInfo" aria-label="Niveau de zoom">100%</span>
+        <button id="zoomInBtn" data-tooltip="Zoome le document. Raccourci: Ctrl + molette.">➕</button>
+      </div>
+    </footer>
     <div id="toolTip" class="tooltip hidden" role="tooltip"></div>
     <div id="shapeModal" class="shape-modal hidden" role="dialog" aria-modal="true" aria-label="Choix de forme">
       <div class="shape-modal-content">
