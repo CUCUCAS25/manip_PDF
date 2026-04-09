@@ -436,3 +436,144 @@ Objectif "continuer jusqu'a tout terminer" atteint sur le backlog stories defini
 - suite de tests (unit/integration/E2E smoke) et benchmark operationnels,
 - pipeline CI et packaging en place,
 - documentation projet mise a jour.
+
+---
+
+## 13. Mise a jour (CDC UX/UI V02) : guide de developpement (fil conducteur = `04-Scrum`)
+
+Cette section **ajoute** un plan d'execution dev aligne avec :
+- `docs/00-Cahier_des_charges.V02.md` (delta UX/UI),
+- `docs/01-Analyse.md` (section 12),
+- `docs/02-Architecture.md` (section 14),
+- `docs/03-Product.md` (section 13: FR-13/14/15 + NFR-06/07/08),
+- `docs/04-Scrum.md` (section 12: epics E6 -> E12 + gates E2E).
+
+### 13.1 Principe d'execution (ordre impose)
+Le backlog V02 doit etre execute **dans l'ordre P0 -> P1 -> P2** tel que detaille dans `04-Scrum.md` :
+1) **E6** (modes edition vs deplacement)  
+2) **E7** (fermeture onglet reversible + confirmation conditionnelle)  
+3) **E8** (simplification barre + menu "Outils PDF")  
+4) **E10/E11** (onboarding + accessibilite)  
+5) **E9** (presets lisibilite texte)  
+6) **E12** (progression rendu / lazy render)
+
+Raison: ce sequencing protege les parcours coeur (J1/J2/J3) et reduit le risque de regressions d'interaction.
+
+### 13.2 Garde-fous obligatoires (qualite / securite / non regression)
+#### 13.2.1 Gates tests
+- Toute story qui touche l'interaction UI doit:
+  - mettre a jour ou ajouter un **test E2E Electron Playwright** (parcours coeur),
+  - etre verifiee en manuel "souris + trackpad" (au minimum 10 essais sur le geste concerne).
+
+#### 13.2.2 Gates securite & privacy (NFR-06)
+- Ne pas afficher ni logger:
+  - chemins complets,
+  - contenu de documents,
+  - donnees sensibles (PII potentielle).
+- Les messages UI doivent etre **actionnables**, non techniques.
+
+#### 13.2.3 Gates accessibilite (NFR-07)
+- Focus visible (CSS) sur tout controle ajoute/modifie.
+- Navigation clavier minimale sur actions principales impactees (Tab/Entree/Echap).
+
+#### 13.2.4 Gates feedback/perf percue (NFR-08)
+- Toute operation longue doit exposer un **etat/progression** (status/toast/progress).
+
+### 13.3 Plan d'implementation par epic (checklist dev)
+> Sections ci-dessous = "quoi + ou + comment tester", derivees de `04-Scrum.md`.
+
+#### 13.3.1 Epic E6 (P0) - Modes clairs (edition vs deplacement)
+Objectif: fiabiliser "double-clic => edition" et eviter les faux drags.
+
+Implementation (renderer):
+- Ajouter un hint au survol d'un champ texte non editant (ex: attribut `title`, tooltip custom, ou pseudo-element).
+- Ajouter un badge "Edition" en mode edition + rappel "ESC / clic dehors".
+- Normaliser curseurs (deplacement vs texte) selon `state.editingAnnotationId`.
+
+Fichiers probables:
+- `app/src/renderer/index.html`
+- `app/src/renderer/styles.css`
+- `app/src/renderer/renderer.js`
+
+Tests:
+- E2E: "add text -> dblclick -> textarea visible -> type -> click outside" (doit rester stable).
+- Manual: 20 doubles clics avec micro-mouvements; taux echec < 1%.
+
+#### 13.3.2 Epic E7 (P0) - Suppression onglet sans risque (toast + undo)
+Objectif: fermeture d'onglet recuperable 5-8s, sans fuite d'infos.
+
+Implementation (renderer):
+- Introduire un "Toast Manager" minimal (file + auto-dismiss + action).
+- Sur click `✕` onglet: retirer tab, afficher toast "PDF retire" + bouton "Annuler".
+- Conserver un snapshot (tab + etat + annotations) tant que fenetre d'undo active.
+- Ajouter confirmation conditionnelle uniquement si risque de perte (annotations non sauvegardees / etat dirty).
+
+Fichiers probables:
+- `app/src/renderer/index.html`
+- `app/src/renderer/styles.css`
+- `app/src/renderer/renderer.js`
+
+Tests:
+- E2E: "open PDF -> close tab -> undo -> tab restored".
+- Verif securite: toast ne contient pas de chemin complet.
+
+#### 13.3.3 Epic E8 (P0) - Simplification barre + menu "Outils PDF"
+Objectif: reduire charge cognitive sans perdre fonctions.
+
+Implementation (UI shell):
+- Regrouper actions en zones Fichier/Annotation/Affichage.
+- Deplacer actions lourdes (fusion/split/compress/protect) vers menu "Outils PDF".
+- Garder les commandes sous forme de "commands" (pas de logique metier UI).
+
+Fichiers probables:
+- `app/src/renderer/index.html`
+- `app/src/renderer/styles.css`
+- `app/src/renderer/renderer.js`
+
+Tests:
+- E2E smoke: ouverture PDF doit rester accessible.
+- Manual: action "Ouvrir / +Texte / Zoom" trouvable rapidement (heuristique).
+
+#### 13.3.4 Epic E10/E11 (P1) - Onboarding + accessibilite
+Implementation:
+- Message status post-ouverture (disparait apres action ou delai).
+- Tooltips enrichis avec raccourcis (Ctrl+O, Ctrl+S, Ctrl+Molette, Suppr, Ctrl+Z/Y).
+- Focus visible + tailles de cibles sur zoom et fermeture onglet.
+
+Tests:
+- E2E: assertions sur presence/absence message status (non bloquant).
+- Manual: navigation Tab atteint boutons cles; Echap sort edition texte.
+
+#### 13.3.5 Epic E9 (P1) - Presets lisibilite texte
+Implementation:
+- Preset "Stylo": fond transparent + halo leger (text-shadow).
+- Preset "Surligneur": fond semi-transparent (alpha) + texte lisible.
+- Option halo on/off par champ texte.
+
+Notes:
+- Ne pas casser les regles existantes: style texte defini via panel; resizing ne doit pas changer font-size.
+
+Tests:
+- E2E: creer champ texte -> appliquer preset -> verifier styles (au moins presence classe/data).
+- Manual: lisibilite sur PDF clair et sombre.
+
+#### 13.3.6 Epic E12 (P2) - Progression rendu multi-pages / lazy render
+Implementation:
+- Pendant rendu: afficher "Rendu x/y..." dans status (ou UI dedicatee).
+- Option lazy render si perf degradee sur gros PDF: ne rendre que les pages visibles + buffer.
+
+Tests:
+- Manual: gros PDF => feedback visible, pas d'impression de freeze.
+
+### 13.4 Commandes de verification (avant commit)
+Dans `app/`:
+- `npm test` (incluant tests Python si script associe)
+- `npx playwright test` (E2E Electron)
+- `npm audit` (objectif: 0 critical/high)
+
+### 13.5 Dev Agent Record (a tenir a jour)
+Pour chaque story V02 terminee, enregistrer :
+- AC couverts (refs E6-S?, E7-S?, etc.),
+- fichiers modifies,
+- tests ajoutes/updates + resultats,
+- points de securite (privacy logs/UI) verifies.

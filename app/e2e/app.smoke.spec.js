@@ -37,12 +37,13 @@ async function openPdfFromUi(page) {
       window.sessionStorage?.clear?.();
     } catch {}
   });
-  // Fermer tous les onglets existants via leurs croix.
-  const closeButtons = page.locator("#tabs .tab .tab-close");
-  const n = await closeButtons.count();
-  for (let i = 0; i < n; i++) {
-    await page.locator("#tabs .tab .tab-close").first().click();
-  }
+  // Reset UI (plus robuste que cliquer sur des croix pouvant afficher confirmations/toasts).
+  await page.evaluate(() => {
+    try {
+      window.__maniE2E?.resetUiState?.();
+    } catch {}
+  });
+  await expect(page.locator("#tabs .tab")).toHaveCount(0, { timeout: 30000 });
 
   const welcomeOpen = page.locator("#welcomeOpenBtn");
   const headerOpen = page.locator("#openBtn");
@@ -57,6 +58,20 @@ async function openPdfFromUi(page) {
   await expect(page.locator("#pagesContainer .pdf-page").first()).toBeVisible({ timeout: 30000 });
   // La page active doit avoir ses overlays (annotationLayer)
   await expect(page.locator("#annotationLayer")).toHaveCount(1, { timeout: 30000 });
+  // E12: progression de rendu (peut être rapide, donc on se base sur l'historique)
+  await page.waitForFunction(
+    () =>
+      Array.isArray(window.__maniStatusHistory) &&
+      window.__maniStatusHistory.some((m) => String(m || "").startsWith("Rendu pages")),
+    null,
+    { timeout: 30000 }
+  );
+  // E10: status d'onboarding post-ouverture (peut être rapidement remplacé)
+  await page.waitForFunction(
+    () => Array.isArray(window.__maniStatusHistory) && window.__maniStatusHistory.some((m) => String(m || "").includes("PDF chargé")),
+    null,
+    { timeout: 30000 }
+  );
 }
 
 async function addTextAnnotation(page) {
@@ -66,6 +81,31 @@ async function addTextAnnotation(page) {
   await expect(annos).toHaveCount(1, { timeout: 15000 });
   return annos.nth(0);
 }
+
+async function getComputedStyleValue(page, selector, prop) {
+  return await page.evaluate(
+    ({ selector, prop }) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const cs = window.getComputedStyle(el);
+      // @ts-ignore
+      return cs[prop] || null;
+    },
+    { selector, prop }
+  );
+}
+
+// Compat: certaines versions de Playwright n'ont pas toHaveCountGreaterThan.
+expect.extend({
+  async toHaveCountGreaterThan(locator, min) {
+    const count = await locator.count();
+    const pass = count > min;
+    return {
+      pass,
+      message: () => `expected count > ${min}, got ${count}`
+    };
+  }
+});
 
 test("app boots and shows title", async () => {
   const { app, page } = await launchApp();
@@ -77,10 +117,18 @@ test("load PDF, remove tab, add and edit text", async () => {
   const { app, page } = await launchApp();
   await openPdfFromUi(page);
 
+  // Sidebars: miniatures + ajouts visibles (non régression UI)
+  await expect(page.locator("#thumbsBar")).toBeVisible();
+  await expect(page.locator("#changesBar")).toBeVisible();
+  await expect(page.locator("#thumbsList .thumb-item")).toHaveCountGreaterThan(0);
+
   // Vérifie que l'onglet a un bouton de fermeture, puis supprime.
   await expect(page.locator("#tabs .tab .tab-close")).toHaveCount(1);
   await page.locator("#tabs .tab .tab-close").click();
-  await expect(page.locator("#tabs .tab")).toHaveCount(0);
+  await expect(page.locator(".toast-root .toast")).toHaveCount(1);
+  await expect(page.locator(".toast-root .toast")).toContainText("PDF retiré");
+  await page.locator(".toast-root .toast .toast-action", { hasText: "Annuler" }).click();
+  await expect(page.locator("#tabs .tab")).toHaveCount(1);
 
   // Recharge pour tester ajout + édition
   await openPdfFromUi(page);
@@ -93,6 +141,30 @@ test("load PDF, remove tab, add and edit text", async () => {
   await expect(editor).toHaveCount(1);
   await editor.fill("Bonjour");
 
+  // Sidebar "Ajouts": doit référencer la fenêtre texte (3 premiers mots)
+  await expect(page.locator("#changesList .change-item")).toHaveCount(1);
+  await expect(page.locator("#changesList .change-item").first()).toContainText("Fenêtre texte");
+  await expect(page.locator("#changesList .change-item .change-summary").first()).toContainText("Bonjour");
+
+  // E9: preset surligneur => fond non transparent, halo désactivé
+  // (à faire pendant que le champ est sélectionné/éditable)
+  await page.locator("#presetHighlighterBtn").click();
+  const bg = await getComputedStyleValue(page, "#annotationLayer .annotation.text.editing", "backgroundColor");
+  expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+  const shadow = await getComputedStyleValue(page, "#annotationLayer .annotation.text.editing", "textShadow");
+  const shadowStr = String(shadow || "").trim().toLowerCase();
+  expect(shadowStr === "" || shadowStr.includes("none")).toBeTruthy();
+
+  // Sortie édition via ESC (E6-S2)
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#annotationLayer .annotation.text.editing")).toHaveCount(0);
+
+  // Re-entrer en édition et re-sortir par clic hors champ (non régression)
+  const textNodeEsc = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
+  await expect(textNodeEsc).toHaveCount(1);
+  await textNodeEsc.dblclick({ position: { x: 20, y: 20 } });
+  await expect(page.locator("#annotationLayer .annotation.text.editing textarea.text-editor")).toHaveCount(1);
+
   // Cliquer hors annotation => sortir édition + désélection
   await page.locator(".viewer").click({ position: { x: 5, y: 5 } });
   await expect(page.locator("#annotationLayer .annotation.text.editing")).toHaveCount(0);
@@ -100,6 +172,10 @@ test("load PDF, remove tab, add and edit text", async () => {
   // Re-sélectionner et vérifier que le texte est resté
   const textNode2 = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
   await expect(textNode2).toHaveCount(1);
+
+  // Sidebar "Ajouts": clic => sélectionne l'annotation (classe .selected)
+  await page.locator("#changesList .change-item").first().click();
+  await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveCount(1);
 
   await app.close();
 });

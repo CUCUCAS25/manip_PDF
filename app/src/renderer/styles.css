@@ -69,6 +69,60 @@ h1 {
   flex-wrap: wrap;
 }
 
+.actions-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(4px);
+}
+
+.actions-group[aria-label="Outils PDF"] {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 34px rgba(15, 48, 96, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 13000;
+}
+
+.menu.hidden {
+  display: none;
+}
+
+.menu button[role="menuitem"] {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.menu button[role="menuitem"]:hover {
+  background: #eaf4ff;
+  border-color: #8bb7da;
+}
+
+.menu button[role="menuitem"]:focus-visible {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
+}
+
 .text-props-panel {
   display: flex;
   align-items: center;
@@ -80,6 +134,41 @@ h1 {
 }
 .text-props-panel.hidden {
   display: none;
+}
+
+.text-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.text-presets button {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.text-presets button:hover {
+  background: #eaf4ff;
+  border-color: #8bb7da;
+}
+
+.text-presets button:focus-visible {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
+}
+
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
 }
 
 label.color-field input[type="color"] {
@@ -114,6 +203,154 @@ main {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.workbench {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  border-right: 1px solid #e5e5e5;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sidebar-right {
+  border-right: none;
+  border-left: 1px solid #e5e5e5;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-bottom: 1px solid #efefef;
+  font-size: 12px;
+}
+
+.muted {
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
+}
+
+.thumbs-list {
+  padding: 10px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.thumb-item {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.thumb-item:hover {
+  background: #eaf4ff;
+  border-color: #8bb7da;
+}
+
+.thumb-item.active {
+  background: #dff0ff;
+  border-color: #8bb7da;
+}
+
+.thumb-canvas {
+  width: 56px;
+  height: auto;
+  display: block;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+}
+
+.thumb-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.thumb-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.thumb-sub {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.changes-list {
+  padding: 10px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.change-item {
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.change-item:hover {
+  background: #eaf4ff;
+  border-color: #8bb7da;
+}
+
+.change-item.selected {
+  background: #dff0ff;
+  border-color: #8bb7da;
+}
+
+.change-topline {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.change-type {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.change-page {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+.change-summary {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tabs {
@@ -173,8 +410,8 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 44px;
+  height: 44px;
   border-radius: 6px;
   border: 1px solid rgba(0, 0, 0, 0.12);
   background: rgba(255, 255, 255, 0.75);
@@ -282,6 +519,22 @@ body.dnd-active #annotationLayer {
     0 0 3px rgba(0, 0, 0, 0.25);
 }
 
+.annotation.text:not(.editing):hover::after {
+  content: "Double-clic pour éditer";
+  position: absolute;
+  left: 6px;
+  top: -22px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .annotation.text.editing:empty::before {
   content: attr(data-placeholder);
   color: rgba(0, 0, 0, 0.45);
@@ -293,6 +546,22 @@ body.dnd-active #annotationLayer {
   outline: 1px solid #ff9900;
   cursor: text;
   user-select: text;
+}
+
+.annotation.text.editing::after {
+  content: "Édition";
+  position: absolute;
+  right: 6px;
+  top: -22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 153, 0, 0.92);
+  color: #111;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .annotation.text.editing textarea.text-editor {
@@ -496,12 +765,17 @@ footer {
 }
 
 .status-zoom button {
-  width: 32px;
-  height: 26px;
+  width: 44px;
+  height: 44px;
   border-radius: 8px;
   border: 1px solid rgba(0, 0, 0, 0.18);
   background: #f5f5f5;
   cursor: pointer;
+}
+
+.status-zoom button:focus-visible {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
 }
 
 #zoomInfo {
@@ -532,6 +806,65 @@ footer {
 .tooltip-target-active {
   outline: 2px solid #007acc;
   outline-offset: 2px;
+}
+
+.toast-root {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  max-width: min(520px, 92vw);
+}
+
+.toast .toast-msg {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.toast .toast-action {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-radius: 9px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.toast .toast-action:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.toast .toast-close {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.toast .toast-close:hover {
+  opacity: 1;
 }
 
 .shape-modal {

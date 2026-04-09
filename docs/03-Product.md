@@ -181,3 +181,67 @@ Plan de validation:
 - `04-Epics-Stories` (decoupage executable pour dev).
 - `05-Test-Strategy` (qualite, perf, securite offline).
 - `06-Release-Plan` (milestones et criteres go/no-go).
+
+---
+
+## 13. Mise a jour (CDC UX/UI V02) : alignement produit
+
+Cette section complete le document produit existant en prenant en compte :
+- `00-Cahier_des_charges.V02.md` (delta UX/UI),
+- `01-Analyse.md` (section 12: impacts/priorites/criteres),
+- `02-Architecture.md` (section 14: implications d'architecture).
+
+### 13.1 Pourquoi maintenant (valeur produit)
+Le delta UX/UI V02 ne vise pas a "faire joli" : il vise a **reduire la friction** et **eviter les regressions** sur les parcours coeur (J1/J2/J3). Productivement, cela protege :
+- **l'adoption** (prise en main rapide, moins d'essais/erreurs),
+- **la confiance** (local-only, messages non sensibles),
+- **la stabilite** (moins de tickets interactions, moins de crashs perçus).
+
+### 13.2 Ajustements de scope (delta) : priorites P0/P1/P2
+#### P0 (a faire avant extension fonctionnelle)
+- **Modes clairs edition vs deplacement** (affordances, curseurs coherents, etat "Edition").
+- **Actions destructives sans risque** (fermeture d'onglet recouvrable via toast + "Annuler", ou confirmation conditionnelle).
+- **Simplification de la barre du haut** (regroupements + menu "Outils PDF" pour operations lourdes).
+
+#### P1 (a faire apres P0, avant V1.5 si possible)
+- **Lisibilite texte** (presets Stylo/Surligneur + option halo/contour).
+- **Onboarding minimal** (status messages actionnables + tooltips avec raccourcis).
+- **Accessibilite** (focus visible, cibles 44x44, contrastes).
+
+#### P2 (optimisations et perfs perçues)
+- **Progression rendu multi-pages** (x/y) et/ou **lazy render** des pages non visibles.
+
+### 13.3 Impacts sur les exigences (PRD) et criteres d'acceptation
+#### Impacts functional requirements (ajouts / precision)
+- **FR-13 (UX modes)**: l'utilisateur comprend en < 3s comment editer vs deplacer un texte (indice + etat).
+- **FR-14 (Onglets "safe delete")**: fermeture d'onglet recouvrable via "Annuler" (5-8s) ou confirmation seulement si risque de perte (annotations non sauvegardees).
+- **FR-15 (Aide & raccourcis)**: tooltips mentionnent raccourcis (Ctrl+O, Ctrl+S, Ctrl+Molette, Suppr, Ctrl+Z/Y) et status message post-ouverture guide l'action suivante.
+
+#### NFR (precision issue de V02 + Analyse + Architecture)
+- **NFR-06 (Observabilite locale)**: logs/messages UI ne doivent pas exposer chemins complets ni contenu sensible (principe "privacy by default").
+- **NFR-07 (Accessibilite)**: navigation clavier possible sur actions principales (Tab/Entree/Echap) + focus visible.
+- **NFR-08 (Feedback / chargements)**: tout traitement long (rendu multi-pages, operations PDF) doit exposer un etat/progression.
+
+#### Criteres d'acceptation (macro, testables)
+- **Decouvrabilite**: nouvel utilisateur -> ajouter + editer un texte en < 60s, sans aide.
+- **Zero confusion de mode**: double-clic edition n'initie pas de drag (taux d'echec < 1% sur 20 essais).
+- **Destruction reversible**: onglet ferme par erreur recuperable via "Annuler".
+- **Confiance**: UI/logs sans details sensibles (chemins, contenu).
+
+### 13.4 Metriques de succes (MVP) : ajustements proposes
+En plus des metriques existantes (perf ouverture, crash-free), ajouter des metriques "UX quality" :
+- **Time-to-first-annotation (TTFA)**: temps median entre ouverture PDF et 1ere annotation texte (objectif: < 30s pour persona A/C).
+- **Edit success rate**: taux de reussite "double-clic -> saisie -> sortie edition" (objectif: > 95% sur 20 essais).
+- **Accidental destructive actions recovered**: % fermetures onglet annulees avec succes (objectif: 100% dans la fenetre d'undo).
+
+### 13.5 Exigences securite (produit)
+Conformement aux contraintes V02 "Local-only" et aux principes d'architecture :
+- **Classification donnees**: PDF + annotations = potentiellement "confidentiel" (par defaut).
+- **Network**: aucune emission reseau par defaut (telemetrie uniquement opt-in, locale si possible).
+- **Logs**: pas de PII/chemins complets en niveau standard; event IDs et statuts uniquement.
+- **Erreurs**: messages actionnables cote UI, details techniques cote log interne.
+
+### 13.6 Roadmap : recommandation de sequencing
+- **R1 (MVP - Socle PDF fiable)**: inclure P0 complet (modes + safe delete + simplification UI) car cela conditionne adoption et reduction des regressions.
+- **R1.1**: P1 (presets lisibilite + onboarding + accessibilite).
+- **R2**: P2 (progression rendu/lazy render) + conversion/batch + securite avancee.

@@ -148,3 +148,59 @@ Pour maximiser la valeur et reduire le risque, la strategie recommandee est une 
 
 ## 11. Recommandation analyste
 Pour proteger delai, budget et qualite, il faut verrouiller d'abord le perimetre MVP et ses metriques (performance, fidelite, stabilite), puis n'integrer l'IA qu'apres validation du socle PDF. Cette sequence maximise la valeur livree tout en limitant la dette technique.
+
+---
+
+## 12. Mise a jour (CDC UX/UI V02) : impact, priorites, criteres
+
+### 12.1 Synthese des ameliorations UX/UI proposees (V02)
+Le cahier des charges UX/UI V02 (`00-Cahier_des_charges.V02.md`) introduit une logique de **reduction de friction** sur les parcours coeur :
+- comprendre et utiliser sans ambiguite les modes **edition texte vs deplacement**,
+- reduire le risque d'erreurs sur les actions destructives (fermeture d'onglet),
+- diminuer la charge cognitive via une barre d'actions plus lisible,
+- ameliorer la lisibilite du texte sur tout type de document,
+- ajouter un onboarding minimal et des affordances (tooltips + raccourcis),
+- renforcer l'accessibilite (focus visible, tailles de cibles, contraste),
+- rendre les performances plus predictibles (progression rendu).
+
+### 12.2 Traceabilite vers les objectifs business
+- **Souverainete / confiance**: messages non techniques, pas de fuite d'infos (chemins, contenu) dans UI/logs.
+- **Productivite**: moins d'essais/erreurs (modes clairs) => temps de modification reduit.
+- **Adoption**: onboarding minimal + barre simplifiee => prise en main plus rapide.
+- **Reduction des erreurs**: undo/confirmation progressive sur suppression onglet => baisse des pertes de travail.
+
+### 12.3 Priorisation recommandee (MoSCoW) des chantiers UX/UI
+#### Must Have (a faire avant extension fonctionnelle)
+- Clarification des modes (indications, etat "Edition", curseurs coherents).
+- Actions destructives "sans risque" (toast + Annuler / confirmation conditionnelle).
+- Simplification de la barre du haut (groupes + menu "Outils PDF").
+
+#### Should Have
+- Lisibilite texte via presets (Stylo / Surligneur) + option halo/contour.
+- Tooltips + raccourcis, et messages de status actionnables.
+- Accessibilite (focus visible, tailles cibles, contraste).
+
+#### Could Have
+- Indicateur de progression rendu multi-pages (x/y).
+- Lazy-render des pages non visibles (si necessaire pour gros PDF).
+
+### 12.4 Criteres d'acceptation (niveau macro, testables)
+- **Decouvrabilite**: un nouvel utilisateur ajoute et edite un texte en < 60s sans aide.
+- **Zero confusion de mode**: double-clic sur texte n'initie pas de drag (taux d'echec < 1% sur 20 essais).
+- **Destruction reversible**: un onglet ferme par erreur est recuperable via "Annuler" dans la fenetre de temps definie.
+- **Accessibilite**: navigation clavier possible sur actions principales (ouvrir, ajouter texte, zoom, supprimer).
+- **Confiance**: l'UI n'affiche pas de chemins complets ni details sensibles; logs non verbeux par defaut.
+
+### 12.5 Risques et mitigations (specifiques UX/UI V02)
+- **Risque**: ajout de toasts/menus augmente la complexite technique.
+  - **Mitigation**: composants UI minimalistes, pas de dependances lourdes, tests e2e sur parcours coeur.
+- **Risque**: regression sur interactions (drag/resize/dblclick).
+  - **Mitigation**: verrouiller des tests e2e "parcours texte" + matrice de tests manuels (souris/trackpad).
+- **Risque**: surcharge de la barre d'etat (messages).
+  - **Mitigation**: messages courts, auto-dismiss, priorite aux actions utilisateur.
+
+### 12.6 Impact roadmap
+Ces chantiers UX/UI doivent etre executes **dans la Phase 1 (Socle PDF)** car ils conditionnent :
+- la fiabilite percue,
+- la rapidite de prise en main,
+- et la reduction des tickets "regressions interaction".

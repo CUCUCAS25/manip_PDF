@@ -186,3 +186,74 @@ Techniques:
 
 ## 13. Recommandation architecte
 Demarrer avec une architecture modulaire simple (Electron + service Python local) permet de livrer rapidement les fonctions coeur tout en gardant une trajectoire claire vers les capacites avancees. Le succes dependra surtout de la discipline sur les contrats internes, la gestion asynchrone des jobs et les tests de performance multi-plateforme tres tot.
+
+---
+
+## 14. Mise a jour (CDC UX/UI V02) : implications d'architecture
+
+Cette section complete l'architecture existante en prenant en compte :
+- `00-Cahier_des_charges.V02.md` (ameliorations UX/UI),
+- `01-Analyse.md` (section 12: impacts/priorites/criteres).
+
+### 14.1 Principes d'implementation (UX drive architecture)
+- **User journeys first**: les parcours coeur (ouvrir PDF, ajouter/editer texte, zoom, suppression onglet) pilotent les decisions techniques et les tests.
+- **Separation des responsabilites UI**: isoler les comportements interactifs (edition/drag/resize) pour limiter les regressions.
+- **Safety by design**: toute action destructive doit etre reversible (undo/toast) ou confirmer de maniere progressive (si et seulement si risque de perte).
+
+### 14.2 Modulaire UI (Renderer) : couches et composants
+Recommandation d'organisation (sans imposer React, mais en s'inspirant des bonnes pratiques composant) :
+- **UI Shell**
+  - barre d'actions (regroupement Fichier/Annotation/Affichage),
+  - zone onglets,
+  - status bar / zoom,
+  - panneaux contextuels (ex: proprietes texte).
+- **Document Viewer**
+  - rendu multi-pages (pdf.js),
+  - gestion du scroll/zoom (ancre de zoom, raccourcis ctrl+molette).
+- **Annotation Layer**
+  - objets (text, formes, images),
+  - selection/deselection,
+  - gestuelle (drag, resize, double clic edition).
+
+Objectif: minimiser le coupling entre "rendu PDF" et "interaction annotation".
+
+### 14.3 Systeme de notifications (toast) et actions reversibles
+Pour supporter la recommandation V02 "suppression onglet sans risque" :
+- Introduire un **Toast Manager** cote renderer (file de toasts, auto-dismiss, action "Annuler").
+- Exposer un contrat minimal :
+  - `toast.show({ message, actionLabel, onAction, timeoutMs })`
+  - `toast.dismiss(id)`
+- Pour la fermeture d'onglet : conserver temporairement l'etat retire (tab + annotations) pendant la fenetre d'annulation.
+
+### 14.4 IA de l'interface (menus / progressive disclosure)
+Pour reduire la charge cognitive (V02) :
+- Regrouper les operations "lourdes" (fusion/split/compress/protect) dans un menu unique **Outils PDF**.
+- Architecturalement, ces actions doivent rester des **commands** envoyees au main process / service Python (pas de logique metier dans l'UI).
+
+### 14.5 Accessibilite (contrats UI)
+Exigences a integrer dans l'architecture UI :
+- Focus visible et ordre de tabulation logique.
+- Raccourcis clavier documentes et coherents (tooltips).
+- Cibles cliquables adequates (44x44 pour actions frequentes) => guidelines CSS et composants.
+
+### 14.6 Observabilite locale & privacy (impact V02)
+Pour aligner "confiance" et "local-only" :
+- Logs renderer: **pas de PII** ni chemins complets; preferer identifiants courts et statuts.
+- Messages UI: utilitaires et actionnables, sans details techniques.
+- Ajouter une convention de logs structurels (categorie, event, champs) et filtrage par niveau.
+
+### 14.7 Strategie de tests (non regression UX)
+Pour limiter le risque de regressions sur interactions (analyse 12.5) :
+- **E2E** (Playwright Electron) verrouilles sur parcours coeur :
+  - ouverture PDF,
+  - suppression onglet,
+  - ajout champ texte,
+  - edition + sortie edition,
+  - deselection hors annotation.
+- **Tests d'interaction** (optionnel) : matrice manuel souris/trackpad + resolution/zoom OS.
+- **Golden signals**: temps d'ouverture, temps de rendu 1ere page, temps de zoom (budget performance).
+
+### 14.8 ADR complementaire (a ajouter a la liste existante)
+- **ADR-06 (propose)**: Toast Manager et actions destructives reversibles (adopte si undo feasible).
+- **ADR-07 (propose)**: Regroupement UI et progressive disclosure via menu "Outils PDF" pour operations lourdes.
+

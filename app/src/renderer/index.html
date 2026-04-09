@@ -17,32 +17,53 @@
     <header>
       <h1>Mani PDF Local</h1>
       <div class="actions">
-        <button id="openBtn" data-tooltip="Ouvre un fichier PDF depuis ton ordinateur.">📂 Ouvrir PDF</button>
-        <button id="languageBtn" data-tooltip="Choisir la langue de l'application.">🌐 Langue: FR</button>
-        <button id="addTextBtn" data-tooltip="Ajoute une zone de texte modifiable sur la page active.">🔤 + Texte</button>
-        <button id="addShapeBtn" data-tooltip="Ajoute une forme: clique puis choisis la forme dans la liste.">🔷 + Forme</button>
-        <button id="addImageBtn" data-tooltip="Insère une image locale dans le document.">🖼️ + Image</button>
-        <input id="imageInput" type="file" accept="image/*" hidden />
-        <button id="deleteSelectedBtn" data-tooltip="Supprime l'élément actuellement sélectionné.">🗑️ Supprimer</button>
-        <button id="undoBtn" data-tooltip="Annule la dernière modification.">↶ Undo</button>
-        <button id="redoBtn" data-tooltip="Rétablit la modification annulée.">↷ Redo</button>
-        <label>Largeur <input id="propWidth" type="number" min="20" value="180" /></label>
-        <label>Hauteur <input id="propHeight" type="number" min="20" value="120" /></label>
-        <label>Rotation <input id="propRotation" type="number" min="0" max="360" value="0" /></label>
-        <label>Opacite (%) <input id="propOpacity" type="number" min="0" max="100" value="100" /></label>
-        <button id="mergeBtn" data-tooltip="Fusionne les PDFs ouverts en un seul fichier.">🧩 Fusion</button>
-        <button id="splitBtn" data-tooltip="Extrait une plage de pages du PDF actif.">✂️ Split</button>
-        <button id="compressBtn" data-tooltip="Crée une version compressée du PDF actif.">🗜️ Compression</button>
-        <button id="protectBtn" data-tooltip="Protège le PDF actif avec un mot de passe.">🔒 Protect</button>
-        <button id="unprotectBtn" data-tooltip="Retire la protection d'un PDF avec son mot de passe.">🔓 Unprotect</button>
-        <button id="fitWidthBtn" data-tooltip="Ajuste le PDF a la largeur de la fenetre.">↔️ Fit largeur</button>
-        <button id="fitPageBtn" data-tooltip="Ajuste le PDF entier dans la fenetre.">🗐 Fit page</button>
-        <button id="prevBtn" data-tooltip="Affiche la page précédente.">◀ Page -</button>
-        <span id="pageInfo">Aucun PDF</span>
-        <button id="nextBtn" data-tooltip="Affiche la page suivante.">Page + ▶</button>
-        <button id="saveSessionBtn" data-tooltip="Sauvegarde l'état courant (onglets, positions, annotations).">💾 Sauver session</button>
+        <div class="actions-group" aria-label="Fichier">
+          <button id="openBtn" data-tooltip="Ouvre un fichier PDF depuis ton ordinateur.">📂 Ouvrir PDF</button>
+          <button id="saveSessionBtn" data-tooltip="Sauvegarde l'état courant (onglets, positions, annotations).">💾 Sauver session</button>
+          <button id="languageBtn" data-tooltip="Choisir la langue de l'application.">🌐 Langue: FR</button>
+        </div>
+
+        <div class="actions-group" aria-label="Annotation">
+          <button id="addTextBtn" data-tooltip="Ajoute une zone de texte modifiable sur la page active.">🔤 + Texte</button>
+          <button id="addShapeBtn" data-tooltip="Ajoute une forme: clique puis choisis la forme dans la liste.">🔷 + Forme</button>
+          <button id="addImageBtn" data-tooltip="Insère une image locale dans le document.">🖼️ + Image</button>
+          <input id="imageInput" type="file" accept="image/*" hidden />
+          <button id="deleteSelectedBtn" data-tooltip="Supprime l'élément actuellement sélectionné.">🗑️ Supprimer</button>
+          <button id="undoBtn" data-tooltip="Annule la dernière modification.">↶ Undo</button>
+          <button id="redoBtn" data-tooltip="Rétablit la modification annulée.">↷ Redo</button>
+          <label>Largeur <input id="propWidth" type="number" min="20" value="180" /></label>
+          <label>Hauteur <input id="propHeight" type="number" min="20" value="120" /></label>
+          <label>Rotation <input id="propRotation" type="number" min="0" max="360" value="0" /></label>
+          <label>Opacite (%) <input id="propOpacity" type="number" min="0" max="100" value="100" /></label>
+        </div>
+
+        <div class="actions-group" aria-label="Affichage">
+          <button id="fitWidthBtn" data-tooltip="Ajuste le PDF a la largeur de la fenetre.">↔️ Fit largeur</button>
+          <button id="fitPageBtn" data-tooltip="Ajuste le PDF entier dans la fenetre.">🗐 Fit page</button>
+          <button id="prevBtn" data-tooltip="Affiche la page précédente.">◀ Page -</button>
+          <span id="pageInfo">Aucun PDF</span>
+          <button id="nextBtn" data-tooltip="Affiche la page suivante.">Page + ▶</button>
+        </div>
+
+        <div class="actions-group" aria-label="Outils PDF">
+          <button id="pdfToolsBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-tooltip="Outils PDF: fusion, split, compression, protection.">🧰 Outils PDF ▾</button>
+          <div id="pdfToolsMenu" class="menu hidden" role="menu" aria-label="Outils PDF">
+            <button id="mergeBtn" role="menuitem" data-tooltip="Fusionne les PDFs ouverts en un seul fichier.">🧩 Fusion</button>
+            <button id="splitBtn" role="menuitem" data-tooltip="Extrait une plage de pages du PDF actif.">✂️ Split</button>
+            <button id="compressBtn" role="menuitem" data-tooltip="Crée une version compressée du PDF actif.">🗜️ Compression</button>
+            <button id="protectBtn" role="menuitem" data-tooltip="Protège le PDF actif avec un mot de passe.">🔒 Protect</button>
+            <button id="unprotectBtn" role="menuitem" data-tooltip="Retire la protection d'un PDF avec son mot de passe.">🔓 Unprotect</button>
+          </div>
+        </div>
       </div>
       <div id="textPropsPanel" class="text-props-panel hidden" aria-label="Propriétés du champ texte sélectionné">
+        <div class="text-presets" aria-label="Presets de lisibilité">
+          <button id="presetPenBtn" type="button" data-tooltip="Preset Stylo: fond transparent + halo léger.">✒️ Stylo</button>
+          <button id="presetHighlighterBtn" type="button" data-tooltip="Preset Surligneur: fond semi-transparent.">🖍️ Surligneur</button>
+          <label class="toggle-field" data-tooltip="Active/désactive le halo (lisibilité) pour le champ sélectionné.">
+            Halo <input id="propHalo" type="checkbox" checked />
+          </label>
+        </div>
         <label class="color-field" id="propTextColorLabel">Txt <input id="propTextColor" type="color" value="#111111" /></label>
         <label class="color-field is-transparent" id="propBgColorLabel">Fond <input id="propBgColor" type="color" value="#ffffff" /></label>
         <label>Marges <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
@@ -63,8 +84,25 @@
       <section class="tabs" id="tabs"></section>
       <section id="jobsPanel"></section>
       <section id="sensitivePanel"></section>
-      <section class="viewer">
-        <div id="pagesContainer" class="pages-container" aria-label="Pages du document"></div>
+      <section class="workbench" aria-label="Espace de travail">
+        <aside id="thumbsBar" class="sidebar sidebar-left" aria-label="Miniatures">
+          <div class="sidebar-header">
+            <strong>Miniatures</strong>
+          </div>
+          <div id="thumbsList" class="thumbs-list" aria-label="Liste des pages"></div>
+        </aside>
+
+        <section class="viewer">
+          <div id="pagesContainer" class="pages-container" aria-label="Pages du document"></div>
+        </section>
+
+        <aside id="changesBar" class="sidebar sidebar-right" aria-label="Ajouts">
+          <div class="sidebar-header">
+            <strong>Ajouts</strong>
+            <span id="changesCount" class="muted" aria-label="Nombre d'ajouts">0</span>
+          </div>
+          <div id="changesList" class="changes-list" aria-label="Liste des ajouts"></div>
+        </aside>
       </section>
     </main>
 
