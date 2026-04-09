@@ -14,21 +14,7 @@ try {
     // fallback: disable worker (slower but should still render)
     pdfjsLib.GlobalWorkerOptions.workerSrc = "";
   }
-
-  try {
-    await window.maniPdfApi?.log?.("pdfjs:bridge:loaded", {
-      workerSrc: pdfjsLib?.GlobalWorkerOptions?.workerSrc || null
-    });
-  } catch {
-    // ignore
-  }
-} catch (error) {
-  try {
-    await window.maniPdfApi?.log?.("pdfjs:bridge:failed", {
-      message: error?.message || String(error)
-    });
-  } catch {
-    // ignore
-  }
+} catch {
+  /* échec chargement pdfjs : renderer gèrera l’erreur au besoin */
 }
 

@@ -1,57 +1,3 @@
-try {
-  window.maniPdfApi?.log?.("renderer:boot", { ts: new Date().toISOString() })?.catch?.(() => {});
-} catch {}
-
-window.addEventListener("error", (event) => {
-  try {
-    window.maniPdfApi?.log?.("renderer:window:error", {
-      message: event?.message || null,
-      filename: event?.filename || null,
-      lineno: event?.lineno || null,
-      colno: event?.colno || null
-    })?.catch?.(() => {});
-  } catch {}
-});
-
-window.addEventListener("unhandledrejection", (event) => {
-  try {
-    window.maniPdfApi?.log?.("renderer:unhandledrejection", {
-      message: event?.reason?.message || String(event?.reason || "")
-    })?.catch?.(() => {});
-  } catch {}
-});
-
-const lastUiEventLogAtByType = {
-  "ui:mousedown": 0,
-  "ui:click": 0,
-  "ui:dblclick": 0
-};
-function uiTargetSummary(target) {
-  try {
-    if (!target) return { target: "null" };
-    const tag = target?.tagName?.toLowerCase?.() || "unknown";
-    const id = target?.id ? `#${target.id}` : "";
-    const cls = target?.className ? `.${String(target.className).split(" ").filter(Boolean).slice(0, 2).join(".")}` : "";
-    const dataId = target?.closest?.("[data-id]")?.getAttribute?.("data-id") || null;
-    return { target: `${tag}${id}${cls}`, dataId };
-  } catch {
-    return { target: "error" };
-  }
-}
-
-function logUiEvent(type, event) {
-  const now = Date.now();
-  const last = lastUiEventLogAtByType[type] || 0;
-  if (now - last < 60) return;
-  lastUiEventLogAtByType[type] = now;
-  const sum = uiTargetSummary(event?.target);
-  log(type, { ...sum, x: event?.clientX ?? null, y: event?.clientY ?? null });
-}
-
-document.addEventListener("mousedown", (e) => logUiEvent("ui:mousedown", e), true);
-document.addEventListener("click", (e) => logUiEvent("ui:click", e), true);
-document.addEventListener("dblclick", (e) => logUiEvent("ui:dblclick", e), true);
-
 const welcomeScreen = document.getElementById("welcomeScreen");
 const addTextBtn = document.getElementById("addTextBtn");
 const addShapeBtn = document.getElementById("addShapeBtn");
@@ -167,16 +113,6 @@ function scheduleSidebarUpdate() {
   }, 60);
 }
 
-/** Logs fichier (main) + console pour diagnostiquer la colonne « Ajouts ». */
-function logChangesSidebarDiag(tag, data) {
-  try {
-    log(`changes:diag:${tag}`, data);
-  } catch {}
-  try {
-    window.maniPdfApi?.log?.(`changes:diag:${tag}`, data)?.catch?.(() => {});
-  } catch {}
-}
-
 function annotationTypeLabel(a) {
   if (!a) return "Élément";
   if (a.type === "text") return "Fenêtre texte";
@@ -264,74 +200,27 @@ function renderChanges() {
     sum.textContent = annotationSummary(a);
     row.appendChild(top);
     row.appendChild(sum);
-    row.addEventListener("mousedown", (ev) => {
+    row.addEventListener("click", () => {
       try {
-        logChangesSidebarDiag("row-mousedown", {
-          button: ev.button,
-          annotationId: a.id,
-          page,
-          targetTag: ev.target?.tagName || null,
-          inChangesList: Boolean(ev.target?.closest?.("#changesList")),
-          inViewer: Boolean(ev.target?.closest?.(".viewer"))
-        });
-      } catch (err) {
-        logChangesSidebarDiag("row-mousedown:error", { message: String(err?.message || err) });
-      }
-    });
-    row.addEventListener("click", (ev) => {
-      try {
-        const tab = getActiveTab();
-        logChangesSidebarDiag("click:start", {
-          annotationId: a.id,
-          annotationPage: page,
-          targetTag: ev.target?.tagName || null,
-          targetClass: typeof ev.target?.className === "string" ? ev.target.className : null,
-          rowDatasetId: row.dataset.id || null,
-          tabId: tab?.id || null,
-          currentPageBefore: tab?.currentPage ?? null,
-          prevSelected: state.selectedAnnotationId || null,
-          hasPagesContainer: Boolean(pagesContainer),
-          hasAnnotationLayer: Boolean(annotationLayer)
-        });
-        log("changes:click", { id: a.id, page, prevSelected: state.selectedAnnotationId || null });
         // Important: définir la sélection AVANT le changement de page,
         // pour que le renderAnnotations déclenché par setActivePage la prenne en compte.
         state.selectedAnnotationId = a.id;
         state.editingAnnotationId = null;
         setActivePage(page);
         const pageNode = pagesContainer?.querySelector?.(`.pdf-page[data-page="${page}"]`);
-        logChangesSidebarDiag("click:after-setActivePage", {
-          currentPageAfter: tab?.currentPage ?? null,
-          selectedAnnotationId: state.selectedAnnotationId || null,
-          pageNodeFound: Boolean(pageNode),
-          activePdfPageClass: pagesContainer?.querySelector?.(".pdf-page.active")?.getAttribute?.("data-page") || null,
-          annosOnCurrentPage: tab ? currentPageAnnotations(tab).length : 0,
-          itemOnCurrentPage: tab ? Boolean(currentPageAnnotations(tab).some((x) => x.id === a.id)) : false
-        });
         pageNode?.scrollIntoView?.({ block: "start", inline: "nearest" });
         syncPropertyInputs();
-        // Sécurise le contour « selected » sur la feuille (setActivePage rend déjà, mais évite un état stale).
         renderAnnotations();
         requestAnimationFrame(() => {
           try {
             const node = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
-            const selectedDom = annotationLayer?.querySelector?.(".annotation.selected");
-            logChangesSidebarDiag("click:after-rAF", {
-              annotationId: a.id,
-              foundAnnotationNode: Boolean(node),
-              selectedDomId: selectedDom?.getAttribute?.("data-id") || null,
-              selectedStateId: state.selectedAnnotationId || null,
-              layerW: annotationLayer?.style?.width || null,
-              layerH: annotationLayer?.style?.height || null
-            });
             node?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-            log("changes:click:after", { id: a.id, foundOnPage: !!node, selected: state.selectedAnnotationId || null });
-          } catch (err2) {
-            logChangesSidebarDiag("click:after-rAF:error", { message: String(err2?.message || err2) });
+          } catch {
+            /* ignore */
           }
         });
-      } catch (err) {
-        logChangesSidebarDiag("click:error", { message: String(err?.message || err) });
+      } catch {
+        /* ignore */
       }
     });
     row.oncontextmenu = (ev) => {
@@ -354,7 +243,9 @@ function renderChanges() {
     };
     changesList.appendChild(row);
   });
-  scheduleSidebarUpdate();
+  // Ne pas appeler scheduleSidebarUpdate() ici : il rappelle renderChanges() après 60 ms en boucle,
+  // ce qui recrée tout le DOM des lignes et annule le « click » (mousedown sans mouseup sur le même nœud).
+  // Les mises à jour sont déjà déclenchées depuis renderAnnotations / setActivePage / rendu PDF.
 }
 
 function drawThumbOverlay(ctx, annos, scale) {
@@ -764,7 +655,7 @@ function scheduleAutoGrowText(tab, item, node, source = "render") {
       if (nextH > (item.h || 0)) {
         item.h = nextH;
         lastAutoGrowHeightById.set(item.id, nextH);
-        log("text:autogrow", { id: item.id, source, h: nextH });
+
         renderAnnotations();
         scheduleAutoSave();
       }
@@ -962,16 +853,6 @@ function updateWelcomeVisibility() {
   }
 }
 
-function log(message, data) {
-  // Renderer logs forwarded to main process (app.log)
-  try {
-    console.log("[renderer]", message, data || "");
-  } catch {}
-  try {
-    window.maniPdfApi?.log?.(message, data)?.catch?.(() => {});
-  } catch {}
-}
-
 function scheduleAutoSave() {
   if (autosaveDebounce) clearTimeout(autosaveDebounce);
   autosaveDebounce = setTimeout(() => {
@@ -1019,10 +900,10 @@ function renderJobs(jobs) {
 }
 
 async function refreshJobs() {
-  log("refreshJobs:start");
+
   const result = await window.maniPdfApi.listJobs();
   if (result.ok) renderJobs(result.jobs);
-  log("refreshJobs:end", { ok: result.ok, count: result.jobs?.length || 0 });
+
 }
 
 function renderSensitiveActions(actions) {
@@ -1043,14 +924,14 @@ function renderSensitiveActions(actions) {
 }
 
 async function refreshSensitiveActions() {
-  log("refreshSensitiveActions:start");
+
   const result = await window.maniPdfApi.listSensitiveActions();
   if (result.ok) renderSensitiveActions(result.actions);
-  log("refreshSensitiveActions:end", { ok: result.ok, count: result.actions?.length || 0 });
+
 }
 
 async function refreshPythonHealth() {
-  log("refreshPythonHealth:start");
+
   const result = await window.maniPdfApi.pythonHealth();
   if (!result.ok) {
     setStatus("Service Python indisponible.");
@@ -1059,7 +940,7 @@ async function refreshPythonHealth() {
   if (result.pypdf === false) {
     setStatus("Attention: pypdf absent. Installez-le: python -m pip install pypdf");
   }
-  log("refreshPythonHealth:end", result);
+
 }
 
 function getActiveTab() {
@@ -1118,7 +999,6 @@ function removeTab(tabId) {
   const wasActive = state.activeTabId === tabId;
   const prevActiveTabId = state.activeTabId;
   state.tabs.splice(idx, 1);
-  log("tab:remove", { tabId, name: removed?.name || null });
 
   if (state.activeTabId === tabId) {
     state.activeTabId = state.tabs[0]?.id || null;
@@ -1152,7 +1032,7 @@ function removeTab(tabId) {
       else state.activeTabId = entry.prevActiveTabId || state.activeTabId;
       state.selectedAnnotationId = null;
       state.editingAnnotationId = null;
-      log("tab:undo-remove", { tabId: entry.tab?.id || null });
+
       renderTabs();
       updateViewer();
       updateWelcomeVisibility();
@@ -1176,7 +1056,7 @@ function updateViewer() {
   }
   renderPdfDocument(tab.path).catch((err) => {
     setStatus("Erreur rendu PDF.");
-    log("pdf:render:failed", { message: err?.message || String(err) });
+
   });
   pageInfo.textContent = `Page ${tab.currentPage || 1}`;
 }
@@ -1197,7 +1077,7 @@ function setZoomScale(next, source = "ui") {
   state.zoomScale = clampZoomScale(next);
   if (prev === state.zoomScale) return;
   updateZoomUI();
-  log("zoom:set", { source, scale: state.zoomScale });
+
   if (getActiveTab()) updateViewer();
 }
 
@@ -1303,7 +1183,6 @@ async function renderPdfDocument(pdfPath) {
   if (!pagesContainer) return;
   const tab = getActiveTab();
   if (!tab) return;
-  log("pdf:render:start", { mode: "document" });
 
   // Annuler les renders en cours (zoom/resize rapides)
   activePdfRenderToken += 1;
@@ -1368,18 +1247,17 @@ async function renderPdfDocument(pdfPath) {
     }
   }
 
-  log("pdf:render:done", { pages: count });
   setActivePage(tab.currentPage || 1);
   applyZoomAnchorIfAny();
   scheduleSidebarUpdate();
 }
 
 async function addPdfTab(filePath, fileName) {
-  log("addPdfTab:start", { filePath, fileName });
+
   const result = await window.maniPdfApi.openPdf(filePath);
   if (!result.ok) {
     setStatus(result.error);
-    log("addPdfTab:failed", result);
+
     return;
   }
 
@@ -1407,15 +1285,15 @@ async function addPdfTab(filePath, fileName) {
       setStatus('PDF chargé — Cliquez sur 🔤 + Texte pour annoter');
     }, 250);
   } catch {}
-  log("addPdfTab:success", { tabId: tab.id });
+
 }
 
 async function promptOpenPdf() {
-  log("openBtn:click");
+
   const selected = await window.maniPdfApi.openPdfDialog();
   if (!selected.ok) {
     if (!selected.cancelled) setStatus(selected.error || "Selection annulee.");
-    log("openBtn:dialog-result", selected);
+
     return;
   }
   const name = selected.path.split("\\").pop() || "document.pdf";
@@ -1429,7 +1307,7 @@ function buildDefaultOutputPath(basePath, suffix) {
 }
 
 async function createMergeJob() {
-  log("createMergeJob:start");
+
   const pdfTabs = state.tabs.map((t) => t.path);
   if (pdfTabs.length < 2) {
     setStatus("Fusion: ouvrez au moins 2 PDF.");
@@ -1445,7 +1323,7 @@ async function createMergeJob() {
 }
 
 async function createSplitJob() {
-  log("createSplitJob:start");
+
   const tab = getActiveTab();
   if (!tab) {
     setStatus("Split: aucun PDF actif.");
@@ -1465,7 +1343,7 @@ async function createSplitJob() {
 }
 
 async function createCompressJob() {
-  log("createCompressJob:start");
+
   const tab = getActiveTab();
   if (!tab) {
     setStatus("Compression: aucun PDF actif.");
@@ -1481,7 +1359,7 @@ async function createCompressJob() {
 }
 
 async function createProtectJob() {
-  log("createProtectJob:start");
+
   const tab = getActiveTab();
   if (!tab) {
     setStatus("Protect: aucun PDF actif.");
@@ -1502,7 +1380,7 @@ async function createProtectJob() {
 }
 
 async function createUnprotectJob() {
-  log("createUnprotectJob:start");
+
   const tab = getActiveTab();
   if (!tab) {
     setStatus("Unprotect: aucun PDF actif.");
@@ -1589,13 +1467,9 @@ function renderAnnotations() {
       node.style.fontSize = `${a.fontSize ?? 14}px`;
       // En mode édition, c'est le textarea qui doit recevoir le focus (pas le div).
       node.tabIndex = isEditing ? -1 : 0;
-      node.onfocus = () => log("text:focus", { id: a.id, target: "div" });
+
       node.onblur = () => {
-        log("text:blur", {
-          id: a.id,
-          active: document.activeElement?.tagName || null,
-          activeId: document.activeElement?.getAttribute?.("data-id") || null
-        });
+
         // Ne PAS quitter automatiquement l'édition sur blur: Electron peut provoquer
         // des blur intempestifs (menus/scroll/clic) et ça empêche de saisir.
         // La sortie d'édition est gérée par le clic "hors zone" (listener global).
@@ -1618,41 +1492,8 @@ function renderAnnotations() {
         ta.spellcheck = false;
         ta.wrap = "soft";
         ta.addEventListener(
-          "focus",
-          () => {
-            log("text:focus", { id: a.id, target: "textarea" });
-          },
-          { capture: true }
-        );
-        ta.addEventListener(
-          "blur",
-          () => {
-            log("text:blur", { id: a.id, target: "textarea" });
-          },
-          { capture: true }
-        );
-        ta.addEventListener(
-          "keydown",
-          (event) => {
-            log("text:keydown", { id: a.id, key: event.key, ctrl: event.ctrlKey, meta: event.metaKey });
-          },
-          { capture: true }
-        );
-        ta.addEventListener(
-          "beforeinput",
-          (event) => {
-            log("text:beforeinput", {
-              id: a.id,
-              inputType: event.inputType || null,
-              dataLen: event.data ? String(event.data).length : 0
-            });
-          },
-          { capture: true }
-        );
-        ta.addEventListener(
           "input",
           () => {
-            log("text:input", { id: a.id, len: (ta.value || "").length });
             a.text = ta.value || "";
             // Garder le DOM en place: on ne rerender pas pendant la saisie.
             scheduleAutoSave();
@@ -1687,35 +1528,8 @@ function renderAnnotations() {
             ta.focus();
           } catch {}
         });
-
-        node.addEventListener(
-          "beforeinput",
-          (event) => {
-            log("text:beforeinput", {
-              id: a.id,
-              inputType: event.inputType || null,
-              dataLen: event.data ? String(event.data).length : 0
-            });
-          },
-          { capture: true }
-        );
-        node.addEventListener(
-          "input",
-          () => {
-            log("text:input", { id: a.id, len: (node.textContent || "").length });
-          },
-          { capture: true }
-        );
-        node.addEventListener(
-          "keydown",
-          (event) => {
-            log("text:keydown", { id: a.id, key: event.key, ctrl: event.ctrlKey, meta: event.metaKey });
-          },
-          { capture: true }
-        );
       }
       node.ondblclick = (event) => {
-        log("text:dblclick", { id: a.id, interactionMode: interactionMode || null });
         if (interactionMode && interactionMode !== "drag-pending") return;
         if (event.target.closest(".resize-handle")) return;
         // CRITIQUE: évite que le listener global "clic hors zone" annule l'édition
@@ -1756,28 +1570,17 @@ function renderAnnotations() {
         return;
       }
 
-      log("text:mousedown", {
-        id: a.id,
-        interactionMode: interactionMode || null,
-        x: event.clientX,
-        y: event.clientY
-      });
-
       // Fallback ultra-robuste: on observe que "click/dblclick" ne se déclenche
       // pas toujours sous Electron quand on amorce un drag (même léger).
       // On passe donc en édition sur "double mousedown" rapide.
       if (a.type === "text" && !event.target.closest(".resize-handle")) {
         const now = Date.now();
         const isSecondDown = lastTextMouseDownId === a.id && now - lastTextMouseDownAt <= 320;
-        log("text:mousedown:double-check", {
-          id: a.id,
-          isSecondDown,
-          dt: lastTextMouseDownAt ? now - lastTextMouseDownAt : null
-        });
+
         lastTextMouseDownAt = now;
         lastTextMouseDownId = a.id;
         if (isSecondDown) {
-          log("text:edit:via-mousedown", { id: a.id });
+
           // CRITIQUE: sinon le mousedown "bulle" et le listener global
           // considère le clic comme "hors zone" (car le DOM est rerender),
           // ce qui annule immédiatement l'édition.
@@ -1812,7 +1615,7 @@ function renderAnnotations() {
       if (a.type === "text" && state.editingAnnotationId === a.id) {
         return;
       }
-      log("annotation:click", { id: a.id, type: a.type, interactionMode: interactionMode || null });
+
       state.selectedAnnotationId = a.id;
       // Ne pas quitter le mode edition si on clique dans la case texte.
       syncPropertyInputs();
@@ -1825,7 +1628,7 @@ function renderAnnotations() {
         // Fallback robuste: Electron/Chromium peut ne pas émettre "dblclick"
         // si le DOM est rerender ou si un drag est amorcé.
         if (isSecondClick) {
-          log("text:dblclick:emulated", { id: a.id });
+
           if (pendingSingleClickRenderTimer) {
             clearTimeout(pendingSingleClickRenderTimer);
             pendingSingleClickRenderTimer = null;
@@ -1885,7 +1688,7 @@ function renderAnnotations() {
 function startDrag(event, id) {
   if (event.button !== 0) return;
   if (interactionMode) return;
-  log("drag:startDrag:down", { id, target: event.target?.tagName || null });
+
   if (state.editingAnnotationId === id) return;
   if (event.target.classList?.contains("resize-handle")) return;
   const tab = getActiveTab();
@@ -2422,28 +2225,12 @@ function htmlToolbarShouldBeVisible() {
   return electronWindowFullscreen !== htmlToolbarF10Flip;
 }
 
-function updateAppToolbarDom(source = "unknown") {
+function updateAppToolbarDom(_source = "unknown") {
   if (!appToolbar) {
-    try {
-      window.maniPdfApi?.log?.("toolbar:dom-update:skip", { source, reason: "no-appToolbar" })?.catch?.(() => {});
-    } catch {}
     return;
   }
   const visible = htmlToolbarShouldBeVisible();
   appToolbar.classList.toggle("hidden", !visible);
-  const hasHidden = appToolbar.classList.contains("hidden");
-  try {
-    window.maniPdfApi
-      ?.log?.("toolbar:dom-update", {
-        source,
-        visible,
-        hasHiddenClass: hasHidden,
-        electronWindowFullscreen,
-        htmlToolbarF10Flip,
-        xor: electronWindowFullscreen !== htmlToolbarF10Flip
-      })
-      ?.catch?.(() => {});
-  } catch {}
   if (!visible) {
     try {
       closeAllFlyoutMenus();
@@ -2453,31 +2240,15 @@ function updateAppToolbarDom(source = "unknown") {
 
 function toggleHtmlToolbarF10(source) {
   htmlToolbarF10Flip = !htmlToolbarF10Flip;
-  try {
-    window.maniPdfApi
-      ?.log?.("toolbar:f10-toggle", {
-        source,
-        htmlToolbarF10Flip,
-        electronWindowFullscreen,
-        willBeVisible: htmlToolbarShouldBeVisible()
-      })
-      ?.catch?.(() => {});
-  } catch {}
-  log("toolbar:f10", { source, flip: htmlToolbarF10Flip, fullscreen: electronWindowFullscreen });
   updateAppToolbarDom(`f10:${source}`);
 }
 
 async function syncFullscreenFromMain() {
   try {
     const r = await window.maniPdfApi?.getWindowFullscreen?.();
-    try {
-      window.maniPdfApi?.log?.("toolbar:sync-fs:ipc-raw", { r: r || null })?.catch?.(() => {});
-    } catch {}
     electronWindowFullscreen = Boolean(r?.full);
-  } catch (e) {
-    try {
-      window.maniPdfApi?.log?.("toolbar:sync-fs:error", { message: String(e?.message || e) })?.catch?.(() => {});
-    } catch {}
+  } catch {
+    /* ignore */
   }
   updateAppToolbarDom("syncFullscreenFromMain");
 }
@@ -2625,28 +2396,15 @@ pdfToolsMenu?.addEventListener?.("click", (e) => {
 
 window.maniPdfApi?.onFullscreenChanged?.((full) => {
   electronWindowFullscreen = Boolean(full);
-  log("window:fullscreen-changed", { full: electronWindowFullscreen });
-  try {
-    window.maniPdfApi
-      ?.log?.("toolbar:ipc-fullscreen-changed", {
-        full: electronWindowFullscreen,
-        htmlToolbarF10Flip,
-        willBeVisible: htmlToolbarShouldBeVisible()
-      })
-      ?.catch?.(() => {});
-  } catch {}
   updateAppToolbarDom("ipc:fullscreen-changed");
 });
 
 window.maniPdfApi?.onToolbarF10Toggle?.(() => {
-  try {
-    window.maniPdfApi?.log?.("toolbar:f10:ipc-received", { from: "main-before-input" })?.catch?.(() => {});
-  } catch {}
   toggleHtmlToolbarF10("main-before-input");
 });
 
 window.maniPdfApi?.onOpenFromMenu?.(async (filePath) => {
-  log("onOpenFromMenu", { filePath });
+
   const name = filePath.split("\\").pop() || "document.pdf";
   await addPdfTab(filePath, name);
 });
@@ -2782,9 +2540,6 @@ document.addEventListener(
   if (event.key === "F10") {
     event.preventDefault();
     event.stopPropagation();
-    try {
-      window.maniPdfApi?.log?.("toolbar:f10-renderer-keydown", { repeat: event.repeat })?.catch?.(() => {});
-    } catch {}
     toggleHtmlToolbarF10("renderer-keydown");
     return;
   }
@@ -3030,29 +2785,6 @@ function setupDragAndDrop() {
   };
 
   let dragDepth = 0;
-  let lastDragOverLogAt = 0;
-  let lastDragOverTarget = "";
-  const logDragOver = (event, scope) => {
-    const now = Date.now();
-    if (now - lastDragOverLogAt < 200) return;
-    lastDragOverLogAt = now;
-    const target = event.target;
-    const tag = target?.tagName?.toLowerCase?.() || "unknown";
-    const id = target?.id ? `#${target.id}` : "";
-    const cls = target?.className ? `.${String(target.className).split(" ").filter(Boolean)[0] || ""}` : "";
-    const key = `${tag}${id}${cls}`;
-    const changed = key !== lastDragOverTarget;
-    lastDragOverTarget = key;
-    log("dnd:dragover", {
-      scope,
-      changedTarget: changed,
-      target: key,
-      x: event.clientX,
-      y: event.clientY,
-      editing: Boolean(state.editingAnnotationId),
-      types: Array.from(event.dataTransfer?.types || [])
-    });
-  };
 
   // IMPORTANT: on attache aussi en capture=true car certains plugins/embeds
   // peuvent interrompre la propagation en bubbling.
@@ -3063,10 +2795,6 @@ function setupDragAndDrop() {
       allowDrop(event);
       if (dragDepth === 1) {
         document.body.classList.add("dnd-active");
-        log("dnd:session:start", {
-          editing: Boolean(state.editingAnnotationId),
-          types: Array.from(event.dataTransfer?.types || [])
-        });
       }
     },
     true
@@ -3075,7 +2803,6 @@ function setupDragAndDrop() {
     "dragover",
     (event) => {
       allowDrop(event);
-      logDragOver(event, "document");
     },
     true
   );
@@ -3086,7 +2813,6 @@ function setupDragAndDrop() {
       dragDepth = Math.max(0, dragDepth - 1);
       if (dragDepth === 0) {
         document.body.classList.remove("dnd-active");
-        log("dnd:session:end");
       }
     },
     true
@@ -3097,24 +2823,16 @@ function setupDragAndDrop() {
       allowDrop(event);
       dragDepth = 0;
       document.body.classList.remove("dnd-active");
-      log("dnd:session:drop", { x: event.clientX, y: event.clientY });
     },
     true
   );
 
   // PDF rendu en canvas => plus besoin d'attacher des listeners spécifiques au viewer.
-
-  log("dnd:setup:done", {
-    hasPdfCanvas: Boolean(pdfCanvas),
-    hasAnnotationLayer: Boolean(annotationLayer),
-    hasDropOverlay: Boolean(dropOverlay)
-  });
-  } catch (error) {
-    log("dnd:setup:failed", { message: error?.message || String(error) });
+  } catch {
+    /* ignore */
   }
 }
 
-log("app:init");
 applyLanguage();
 syncFullscreenFromMain().catch(() => {});
 updateZoomUI();

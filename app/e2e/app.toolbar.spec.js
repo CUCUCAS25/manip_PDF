@@ -43,6 +43,8 @@ test("toolbar HTML: masquée hors plein écran, F10/F11 via main", async () => {
     const w = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     if (!w) throw new Error("BrowserWindow introuvable");
     w.setFullScreen(true);
+    // Sous Windows / E2E, l’IPC peut précéder l’événement natif : on aligne l’état réel.
+    w.webContents.send("window:fullscreen-changed", w.isFullScreen());
   });
 
   await page.waitForFunction(
@@ -82,6 +84,7 @@ test("toolbar HTML: masquée hors plein écran, F10/F11 via main", async () => {
   await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     w?.setFullScreen(false);
+    if (w) w.webContents.send("window:fullscreen-changed", w.isFullScreen());
   });
 
   await page.waitForFunction(

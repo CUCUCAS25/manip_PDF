@@ -24,7 +24,6 @@ let activeJobId = null;
 let sensitiveActions = [];
 
 function loadSensitiveLog() {
-  log("main", "loadSensitiveLog:start");
   try {
     if (fs.existsSync(sensitiveLogPath)) {
       sensitiveActions = JSON.parse(fs.readFileSync(sensitiveLogPath, "utf8"));
@@ -33,18 +32,15 @@ function loadSensitiveLog() {
   } catch {
     sensitiveActions = [];
   }
-  log("main", "loadSensitiveLog:done", { count: sensitiveActions.length });
 }
 
 function appendSensitiveAction(entry) {
-  log("main", "appendSensitiveAction", entry);
   sensitiveActions.push(entry);
   if (sensitiveActions.length > 200) sensitiveActions = sensitiveActions.slice(-200);
   fs.writeFileSync(sensitiveLogPath, JSON.stringify(sensitiveActions, null, 2), "utf8");
 }
 
 function loadJobs() {
-  log("main", "loadJobs:start");
   try {
     if (!fs.existsSync(jobsStatePath)) return;
     const parsed = JSON.parse(fs.readFileSync(jobsStatePath, "utf8"));
@@ -57,16 +53,22 @@ function loadJobs() {
   } catch {
     jobs.length = 0;
   }
-  log("main", "loadJobs:done", { count: jobs.length });
 }
 
 function persistJobs() {
-  log("main", "persistJobs", { count: jobs.length });
   fs.writeFileSync(jobsStatePath, JSON.stringify(jobs, null, 2), "utf8");
 }
 
+function broadcastFullscreenState() {
+  try {
+    const full = Boolean(mainWindow?.isFullScreen?.());
+    mainWindow?.webContents?.send?.("window:fullscreen-changed", full);
+  } catch {
+    /* ignore */
+  }
+}
+
 function createWindow() {
-  log("main", "createWindow");
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -77,26 +79,26 @@ function createWindow() {
     }
   });
 
-  // Diagnostics: utile quand le renderer ne démarre pas (JS error, ressource manquante, crash).
-  try {
-    mainWindow.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedURL) => {
-      log("main", "web:did-fail-load", { errorCode, errorDescription, url: validatedURL });
-    });
-    mainWindow.webContents.on("render-process-gone", (_, details) => {
-      log("main", "web:render-process-gone", details);
-    });
-    mainWindow.webContents.on("console-message", (_, level, message, line, sourceId) => {
-      log("renderer", "console-message", { level, message, line, sourceId });
-    });
-  } catch (error) {
-    log("main", "web:diagnostics:failed", { message: error?.message || String(error) });
-  }
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    if (input.key === "F10") {
+      event.preventDefault();
+      try {
+        mainWindow.webContents.send("toolbar:f10-toggle");
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  mainWindow.on("enter-full-screen", () => broadcastFullscreenState());
+  mainWindow.on("leave-full-screen", () => broadcastFullscreenState());
+  mainWindow.webContents.once("did-finish-load", () => broadcastFullscreenState());
 
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 }
 
 function createMenu() {
-  log("main", "createMenu");
   const template = [
     {
       label: "File",
@@ -110,7 +112,6 @@ function createMenu() {
               filters: [{ name: "PDF", extensions: ["pdf"] }]
             });
             if (!result.canceled && result.filePaths[0]) {
-              log("main", "menu:openPdf:selected", { path: result.filePaths[0] });
               mainWindow.webContents.send("pdf:open-from-menu", result.filePaths[0]);
             }
           }
@@ -153,7 +154,6 @@ function createMenu() {
 }
 
 function startAutosave() {
-  log("main", "startAutosave");
   if (autosaveInterval) clearInterval(autosaveInterval);
   autosaveInterval = setInterval(() => {
     if (!mainWindow) return;
@@ -163,14 +163,12 @@ function startAutosave() {
 
 function startPythonService() {
   const scriptPath = path.join(__dirname, "..", "..", "python", "pdf_service.py");
-  log("main", "startPythonService", { scriptPath });
   pythonProcess = spawn("python", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
-  pythonProcess.stdout.on("data", (buf) => log("python", "stdout", { line: buf.toString().trim() }));
-  pythonProcess.stderr.on("data", (buf) => log("python", "stderr", { line: buf.toString().trim() }));
+  pythonProcess.stdout.on("data", () => {});
+  pythonProcess.stderr.on("data", () => {});
 }
 
 function stopPythonService() {
-  log("main", "stopPythonService");
   if (pythonProcess) {
     pythonProcess.kill();
     pythonProcess = null;
@@ -178,7 +176,6 @@ function stopPythonService() {
 }
 
 function validateWithPython(pdfPath) {
-  log("main", "validateWithPython:request", { pdfPath });
   return new Promise((resolve) => {
     const body = JSON.stringify({ path: pdfPath });
     const req = http.request(
@@ -199,7 +196,6 @@ function validateWithPython(pdfPath) {
         res.on("end", () => {
           try {
             const parsed = JSON.parse(data || "{}");
-            log("main", "validateWithPython:response", parsed);
             resolve(parsed);
           } catch {
             resolve({ ok: false, error: "Reponse validation invalide." });
@@ -219,7 +215,6 @@ function validateWithPython(pdfPath) {
 }
 
 function postToPython(route, payload) {
-  log("main", "postToPython:request", { route, payload });
   return new Promise((resolve) => {
     const body = JSON.stringify(payload || {});
     const req = http.request(
@@ -291,7 +286,6 @@ async function processJobQueue() {
   if (activeJobId) return;
   const next = jobs.find((j) => j.status === "queued");
   if (!next) return;
-  log("jobs", "process:start", { id: next.id, type: next.type });
   activeJobId = next.id;
   next.status = "running";
   next.progress = 10;
@@ -320,7 +314,6 @@ async function processJobQueue() {
     next.progress = 100;
     next.error = error.message;
   } finally {
-    log("jobs", "process:end", { id: next.id, status: next.status, error: next.error || null });
     if (next.type === "protect" || next.type === "unprotect") {
       appendSensitiveAction({
         ts: new Date().toISOString(),
@@ -337,7 +330,6 @@ async function processJobQueue() {
 }
 
 ipcMain.handle("pdf:open", async (_, pdfPath) => {
-  log("ipc", "pdf:open", { pdfPath });
   try {
     if (!pdfPath || !fs.existsSync(pdfPath)) {
       return { ok: false, error: "Le fichier PDF n'existe pas." };
@@ -357,7 +349,6 @@ ipcMain.handle("pdf:open", async (_, pdfPath) => {
 });
 
 ipcMain.handle("pdf:read-bytes", async (_, pdfPath) => {
-  log("ipc", "pdf:read-bytes", { pdfPath });
   try {
     if (!pdfPath || !fs.existsSync(pdfPath)) {
       return { ok: false, error: "Le fichier PDF n'existe pas." };
@@ -371,19 +362,16 @@ ipcMain.handle("pdf:read-bytes", async (_, pdfPath) => {
 });
 
 ipcMain.handle("dialog:openPdf", async () => {
-  log("ipc", "dialog:openPdf:start");
   if (!mainWindow) return { ok: false, error: "Fenetre principale indisponible." };
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
     filters: [{ name: "PDF", extensions: ["pdf"] }]
   });
   if (result.canceled || !result.filePaths[0]) return { ok: false, cancelled: true };
-  log("ipc", "dialog:openPdf:selected", { path: result.filePaths[0] });
   return { ok: true, path: result.filePaths[0] };
 });
 
 ipcMain.handle("session:save", async (_, payload) => {
-  log("ipc", "session:save", { tabs: payload?.tabs?.length || 0 });
   try {
     fs.writeFileSync(sessionStatePath, JSON.stringify(payload, null, 2), "utf8");
     return { ok: true };
@@ -393,7 +381,6 @@ ipcMain.handle("session:save", async (_, payload) => {
 });
 
 ipcMain.handle("session:load", async () => {
-  log("ipc", "session:load");
   try {
     if (!fs.existsSync(sessionStatePath)) return { ok: true, data: null };
     const content = fs.readFileSync(sessionStatePath, "utf8");
@@ -411,7 +398,6 @@ ipcMain.handle("session:load", async () => {
 });
 
 ipcMain.handle("job:create", async (_, input) => {
-  log("ipc", "job:create", input);
   const id = `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   jobs.push({
     id,
@@ -456,12 +442,26 @@ ipcMain.handle("job:retry", async (_, id) => {
 });
 ipcMain.handle("sensitive:list", async () => ({ ok: true, actions: sensitiveActions }));
 ipcMain.handle("log:renderer", async (_, payload) => {
-  log("renderer", payload?.message || "event", payload?.data || null);
+  log("renderer", payload?.message || "event", payload?.data ?? null);
+  return { ok: true };
+});
+
+ipcMain.handle("window:is-fullscreen", () => {
+  try {
+    const full = Boolean(mainWindow?.isFullScreen?.());
+    const maximized = Boolean(mainWindow?.isMaximized?.());
+    return { ok: true, full, maximized };
+  } catch {
+    return { ok: false, full: false, maximized: false };
+  }
+});
+
+ipcMain.handle("app:quit", () => {
+  app.quit();
   return { ok: true };
 });
 
 app.whenReady().then(() => {
-  log("main", "app:ready");
   loadSensitiveLog();
   loadJobs();
   createWindow();
@@ -472,7 +472,6 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  log("main", "app:window-all-closed");
   stopPythonService();
   if (process.platform !== "darwin") app.quit();
 });
