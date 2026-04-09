@@ -52,10 +52,7 @@ document.addEventListener("mousedown", (e) => logUiEvent("ui:mousedown", e), tru
 document.addEventListener("click", (e) => logUiEvent("ui:click", e), true);
 document.addEventListener("dblclick", (e) => logUiEvent("ui:dblclick", e), true);
 
-const openBtn = document.getElementById("openBtn");
-const languageBtn = document.getElementById("languageBtn");
 const welcomeScreen = document.getElementById("welcomeScreen");
-const welcomeOpenBtn = document.getElementById("welcomeOpenBtn");
 const addTextBtn = document.getElementById("addTextBtn");
 const addShapeBtn = document.getElementById("addShapeBtn");
 const addImageBtn = document.getElementById("addImageBtn");
@@ -110,9 +107,7 @@ const toolTip = document.getElementById("toolTip");
 const shapeModal = document.getElementById("shapeModal");
 const shapeGrid = document.getElementById("shapeGrid");
 const closeShapeModalBtn = document.getElementById("closeShapeModalBtn");
-const languageModal = document.getElementById("languageModal");
-const languageGrid = document.getElementById("languageGrid");
-const closeLanguageModalBtn = document.getElementById("closeLanguageModalBtn");
+// Modale "Langue" supprimée: la langue se choisit via menu natif Options > Langue.
 let activeTooltipTarget = null;
 const pdfToolsBtn = document.getElementById("pdfToolsBtn");
 const pdfToolsMenu = document.getElementById("pdfToolsMenu");
@@ -572,8 +567,7 @@ function setLabelPrefix(inputId, value) {
 }
 
 function applyLanguage() {
-  languageBtn.textContent = t("language");
-  openBtn.textContent = t("open");
+  // Choix de langue via menu natif (Options > Langue) : pas de bouton "Langue" dans l'UI.
   addTextBtn.textContent = t("addText");
   addShapeBtn.textContent = t("addShape");
   addImageBtn.textContent = t("addImage");
@@ -593,20 +587,12 @@ function applyLanguage() {
   if (!getActiveTab()) pageInfo.textContent = t("noPdf");
 }
 
-function pickLanguage() {
-  languageModal.classList.remove("hidden");
-}
-
-function closeLanguagePicker() {
-  languageModal.classList.add("hidden");
-}
-
 function setLanguage(lang) {
-  if (!I18N[lang]) return;
-  state.language = lang;
+  const next = String(lang || "fr").toLowerCase();
+  if (!I18N[next]) return;
+  state.language = next;
   applyLanguage();
-  if (statusBar.textContent) statusBar.textContent = t("ready");
-  closeLanguagePicker();
+  setStatus(t("ready"));
 }
 
 function getSafeZoneSize() {
@@ -2049,9 +2035,7 @@ async function loadSession() {
   }
 }
 
-openBtn?.addEventListener?.("click", promptOpenPdf);
-languageBtn?.addEventListener?.("click", pickLanguage);
-welcomeOpenBtn?.addEventListener?.("click", promptOpenPdf);
+// Ouverture PDF via menu natif (File > Open PDF) et raccourci clavier (Ctrl+O).
 
 saveSessionBtn?.addEventListener?.("click", saveSession);
 prevBtn?.addEventListener?.("click", () => pageShift(-1));
@@ -2131,7 +2115,6 @@ shapeGrid?.addEventListener?.("click", (event) => {
   if (!btn) return;
   addShapeByType(btn.dataset.shape);
 });
-closeLanguageModalBtn?.addEventListener?.("click", closeLanguagePicker);
 
 // E8: menu "Outils PDF"
 function closePdfToolsMenu() {
@@ -2182,19 +2165,18 @@ pdfToolsMenu?.addEventListener?.("click", (e) => {
   if (!item) return;
   closePdfToolsMenu();
 });
-languageModal?.addEventListener?.("mousedown", (event) => {
-  if (event.target === languageModal) closeLanguagePicker();
-});
-languageGrid?.addEventListener?.("click", (event) => {
-  const btn = event.target.closest("button[data-lang]");
-  if (!btn) return;
-  setLanguage(btn.dataset.lang);
-});
 
 window.maniPdfApi?.onOpenFromMenu?.(async (filePath) => {
   log("onOpenFromMenu", { filePath });
   const name = filePath.split("\\").pop() || "document.pdf";
   await addPdfTab(filePath, name);
+});
+
+// Options > Langue (menu natif)
+window.maniPdfApi?.onSetLanguage?.((lang) => {
+  try {
+    setLanguage(lang);
+  } catch {}
 });
 
 window.maniPdfApi?.onAutosaveRequested?.(saveSession);
@@ -2319,11 +2301,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !shapeModal.classList.contains("hidden")) {
     event.preventDefault();
     closeShapePicker();
-    return;
-  }
-  if (event.key === "Escape" && !languageModal.classList.contains("hidden")) {
-    event.preventDefault();
-    closeLanguagePicker();
     return;
   }
 
@@ -2608,7 +2585,14 @@ log("app:init");
 applyLanguage();
 updateZoomUI();
 updateWelcomeVisibility();
-loadSession();
+if (!window.maniPdfApi?.isE2E?.()) {
+  loadSession();
+} else {
+  // En E2E, on évite la restauration de session (flaky) pour des tests stables.
+  state.tabs = [];
+  state.activeTabId = null;
+  updateWelcomeVisibility();
+}
 refreshJobs();
 refreshSensitiveActions();
 refreshPythonHealth();

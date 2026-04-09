@@ -1,6 +1,13 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("maniPdfApi", {
+  isE2E: () => {
+    try {
+      return Boolean(process?.env?.MANI_PDF_E2E);
+    } catch {
+      return false;
+    }
+  },
   openPdf: (path) => ipcRenderer.invoke("pdf:open", path),
   readPdfBytes: (path) => ipcRenderer.invoke("pdf:read-bytes", path),
   openPdfDialog: () => {
@@ -24,6 +31,7 @@ contextBridge.exposeInMainWorld("maniPdfApi", {
   listSensitiveActions: () => ipcRenderer.invoke("sensitive:list"),
   log: (message, data) => ipcRenderer.invoke("log:renderer", { message, data }),
   onOpenFromMenu: (cb) => ipcRenderer.on("pdf:open-from-menu", (_, path) => cb(path)),
+  onSetLanguage: (cb) => ipcRenderer.on("app:set-language", (_, lang) => cb(lang)),
   onAutosaveRequested: (cb) => ipcRenderer.on("session:autosave-requested", cb),
   onSaveRequested: (cb) => ipcRenderer.on("session:save-requested", cb)
 });

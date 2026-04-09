@@ -126,6 +126,26 @@ function createMenu() {
         { role: "quit" }
       ]
     }
+    ,
+    {
+      label: "Options",
+      submenu: [
+        {
+          label: "Langue",
+          submenu: [
+            {
+              label: "Francais",
+              type: "radio",
+              checked: true,
+              click: () => mainWindow?.webContents?.send?.("app:set-language", "fr")
+            },
+            { label: "English", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "en") },
+            { label: "Espanol", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "es") },
+            { label: "Portugues", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "pt") }
+          ]
+        }
+      ]
+    }
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -463,6 +483,8 @@ process.on("uncaughtException", (err) => {
 
 process.on("unhandledRejection", (reason) => {
   const r =
-    reason instanceof Error ? { message: reason.message, stack: reason.stack } : { reason: String(reason) };
+    reason instanceof Error
+      ? { message: reason.message, stack: reason.stack }
+      : { reason: typeof reason === "string" ? reason : JSON.stringify(reason) };
   log("fatal", "unhandledRejection", r);
 });

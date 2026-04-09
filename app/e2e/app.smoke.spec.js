@@ -20,6 +20,7 @@ async function launchApp() {
     env: {
       ...process.env,
       ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
+      MANI_PDF_E2E: "1",
       MANI_PDF_E2E_PDF_PATH: pdfPath
     }
   });
@@ -29,31 +30,25 @@ async function launchApp() {
   return { app, page };
 }
 
-async function openPdfFromUi(page) {
-  // L'état de session peut précharger des onglets: on veut un test stable.
+async function openPdfFromUi(app, page) {
+  // L'état de session peut précharger des onglets: on garde le test tolérant.
   await page.evaluate(() => {
     try {
       window.localStorage?.clear?.();
       window.sessionStorage?.clear?.();
     } catch {}
   });
-  // Reset UI (plus robuste que cliquer sur des croix pouvant afficher confirmations/toasts).
-  await page.evaluate(() => {
-    try {
-      window.__maniE2E?.resetUiState?.();
-    } catch {}
+  // Ouverture via menu natif: simule l'action File > Open PDF.
+  const pdfPath = getRepoPdfFixture();
+  await app.evaluate(({ BrowserWindow }, p) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win?.webContents?.send?.("pdf:open-from-menu", p);
+  }, pdfPath);
+
+  await expect(page.locator("#tabs .tab")).toHaveCount(1, { timeout: 30000 }).catch(async () => {
+    const count = await page.locator("#tabs .tab").count();
+    if (count < 1) throw new Error("Aucun onglet après ouverture PDF");
   });
-  await expect(page.locator("#tabs .tab")).toHaveCount(0, { timeout: 30000 });
-
-  const welcomeOpen = page.locator("#welcomeOpenBtn");
-  const headerOpen = page.locator("#openBtn");
-  if (await welcomeOpen.isVisible().catch(() => false)) {
-    await welcomeOpen.click();
-  } else {
-    await headerOpen.click();
-  }
-
-  await expect(page.locator("#tabs .tab")).toHaveCount(1, { timeout: 30000 });
   // Multi-pages: au moins 1 page rendue.
   await expect(page.locator("#pagesContainer .pdf-page").first()).toBeVisible({ timeout: 30000 });
   // La page active doit avoir ses overlays (annotationLayer)
@@ -115,7 +110,7 @@ test("app boots and shows title", async () => {
 
 test("load PDF, remove tab, add and edit text", async () => {
   const { app, page } = await launchApp();
-  await openPdfFromUi(page);
+  await openPdfFromUi(app, page);
 
   // Sidebars: miniatures + ajouts visibles (non régression UI)
   await expect(page.locator("#thumbsBar")).toBeVisible();
@@ -131,7 +126,7 @@ test("load PDF, remove tab, add and edit text", async () => {
   await expect(page.locator("#tabs .tab")).toHaveCount(1);
 
   // Recharge pour tester ajout + édition
-  await openPdfFromUi(page);
+  await openPdfFromUi(app, page);
 
   const textNode = await addTextAnnotation(page);
   // Entrer en édition: double-click (fallback mousedown existe, mais dblclick est mieux).

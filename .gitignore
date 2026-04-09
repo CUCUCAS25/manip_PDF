@@ -6,5 +6,7 @@ app/playwright-report/
 _bmad-output/
 *.log
 *.tmp
+__pycache__/
+*.pyc
 Thumbs.db
 .DS_Store
