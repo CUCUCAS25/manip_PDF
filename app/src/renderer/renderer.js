@@ -92,6 +92,9 @@ const statusText = document.getElementById("statusText");
 const tabs = document.getElementById("tabs");
 const viewer = document.querySelector(".viewer");
 const pagesContainer = document.getElementById("pagesContainer");
+const textPropsPanel = document.getElementById("textPropsPanel");
+const propTextColorLabel = document.getElementById("propTextColorLabel");
+const propBgColorLabel = document.getElementById("propBgColorLabel");
 let pdfCanvas = null;
 let annotationLayer = null;
 let dropOverlay = null;
@@ -127,6 +130,8 @@ let lastTextClickAt = 0;
 let lastTextClickId = null;
 let lastTextMouseDownAt = 0;
 let lastTextMouseDownId = null;
+const lastAutoGrowHeightById = new Map();
+let measureTextNode = null;
 
 function cancelPointerInteraction() {
   try {
@@ -134,6 +139,119 @@ function cancelPointerInteraction() {
   } catch {}
   activePointerCleanup = null;
   interactionMode = null;
+}
+
+function ensureMeasureTextNode() {
+  if (measureTextNode) return measureTextNode;
+  const node = document.createElement("div");
+  node.style.position = "fixed";
+  node.style.left = "-10000px";
+  node.style.top = "-10000px";
+  node.style.visibility = "hidden";
+  node.style.whiteSpace = "pre-wrap";
+  node.style.wordBreak = "break-word";
+  node.style.overflowWrap = "break-word";
+  node.style.pointerEvents = "none";
+  node.style.margin = "0";
+  node.style.border = "0";
+  node.style.boxSizing = "border-box";
+  document.body.appendChild(node);
+  measureTextNode = node;
+  return node;
+}
+
+function getRequiredTextHeight(item) {
+  if (!item || item.type !== "text") return 20;
+  const padding = item.padding ?? 6;
+  const fontSize = item.fontSize ?? 14;
+  // Hauteur minimale d'une ligne, même si texte vide
+  const minLine = Math.ceil(fontSize * 1.45 + 2 * padding);
+  const text = item.text || "";
+  if (!text) return Math.max(20, minLine);
+
+  const m = ensureMeasureTextNode();
+  // Largeur du cadre = limites gauche/droite imposées par l'utilisateur
+  const w = Math.max(20, Math.floor(item.w || 20));
+  m.style.width = `${w}px`;
+  m.style.padding = `${padding}px`;
+  m.style.fontFamily = item.fontFamily || "Arial";
+  m.style.fontSize = `${fontSize}px`;
+  m.style.lineHeight = "1.35";
+  m.textContent = text;
+  const needed = Math.ceil(m.scrollHeight || 0);
+  return Math.max(20, minLine, needed);
+}
+
+function getRequiredTextHeightForWidth(item, width) {
+  if (!item || item.type !== "text") return 20;
+  const padding = item.padding ?? 6;
+  const fontSize = item.fontSize ?? 14;
+  const minLine = Math.ceil(fontSize * 1.45 + 2 * padding);
+  const text = item.text || "";
+  if (!text) return Math.max(20, minLine);
+
+  const m = ensureMeasureTextNode();
+  const w = Math.max(20, Math.floor(width || 20));
+  m.style.width = `${w}px`;
+  m.style.padding = `${padding}px`;
+  m.style.fontFamily = item.fontFamily || "Arial";
+  m.style.fontSize = `${fontSize}px`;
+  m.style.lineHeight = "1.35";
+  m.textContent = text;
+  const needed = Math.ceil(m.scrollHeight || 0);
+  return Math.max(20, minLine, needed);
+}
+
+function getMinWidthToFitHeight(item, height, maxWidth) {
+  // Retourne la largeur minimale telle que le texte tienne dans "height".
+  // Si impossible (même à maxWidth), retourne maxWidth.
+  const h = Math.max(20, Math.floor(height || 20));
+  const maxW = Math.max(20, Math.floor(maxWidth || item?.w || 20));
+  let lo = 20;
+  let hi = maxW;
+
+  const fitsAtMax = getRequiredTextHeightForWidth(item, maxW) <= h + 1;
+  if (!fitsAtMax) return maxW;
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const need = getRequiredTextHeightForWidth(item, mid);
+    if (need <= h + 1) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+function scheduleAutoGrowText(tab, item, node, source = "render") {
+  if (!tab || !item || item.type !== "text" || !node) return;
+  requestAnimationFrame(() => {
+    try {
+      const ta = node.querySelector?.("textarea.text-editor");
+      if (ta) {
+        // Ajuste le textarea à son contenu (pas de scrollbar).
+        ta.style.height = "auto";
+        ta.style.height = `${Math.ceil(ta.scrollHeight)}px`;
+      }
+
+      const required = getRequiredTextHeight(item);
+      // IMPORTANT: ne rien faire si ça tient déjà (pas de changement à la sélection).
+      if (required <= (item.h || 0) + 1) return;
+
+      const last = lastAutoGrowHeightById.get(item.id) || 0;
+      if (required <= last + 1) return;
+
+      const zone = getSafeZoneSize();
+      const maxH = Math.max(20, zone.height - (item.y || 0));
+      const nextH = clamp(required, 20, maxH);
+      if (nextH > (item.h || 0)) {
+        item.h = nextH;
+        lastAutoGrowHeightById.set(item.id, nextH);
+        log("text:autogrow", { id: item.id, source, h: nextH });
+        renderAnnotations();
+        scheduleAutoSave();
+      }
+    } catch {}
+  });
 }
 
 const I18N = {
@@ -930,6 +1048,7 @@ function renderAnnotations() {
             a.text = ta.value || "";
             // Garder le DOM en place: on ne rerender pas pendant la saisie.
             scheduleAutoSave();
+            scheduleAutoGrowText(tab, a, node, "input");
           },
           { capture: true }
         );
@@ -1148,6 +1267,9 @@ function renderAnnotations() {
       });
     }
     annotationLayer.appendChild(node);
+    if (a.type === "text") {
+      scheduleAutoGrowText(tab, a, node, "render");
+    }
   });
 }
 
@@ -1224,10 +1346,6 @@ function startResize(event, id, mode = "br") {
   const originY = item.y;
   const originW = item.w;
   const originH = item.h;
-  const originFontSize = item.fontSize ?? 14;
-  const originPadding = item.padding ?? 6;
-  const originUsableW = Math.max(1, originW - 2 * originPadding);
-  const originUsableH = Math.max(1, originH - 2 * originPadding);
   captureSnapshot(tab);
 
   const move = (ev) => {
@@ -1260,9 +1378,13 @@ function startResize(event, id, mode = "br") {
     // Enforce min sizes by adjusting the anchored edge.
     let minH = 20;
     if (item.type === "text") {
-      const padding = item.padding ?? 6;
-      const fontSize = item.fontSize ?? 14;
-      minH = Math.max(minH, Math.ceil(fontSize * 1.45 + 2 * padding));
+      // La fenêtre ne peut pas être plus petite que le texte qu'elle contient.
+      // IMPORTANT: si on est en resize horizontal pur (gauche/droite), on ne doit
+      // pas "partir vers le bas" : on bloque la largeur au lieu d'augmenter la hauteur.
+      const horizontalOnly = (affectsLeft || affectsRight) && !affectsTop && !affectsBottom;
+      if (!horizontalOnly) {
+        minH = Math.max(minH, getRequiredTextHeightForWidth(item, nextW));
+      }
     }
     if (nextW < minW) {
       if (affectsLeft) nextX -= minW - nextW;
@@ -1271,6 +1393,24 @@ function startResize(event, id, mode = "br") {
     if (nextH < minH) {
       if (affectsTop) nextY -= minH - nextH;
       nextH = minH;
+    }
+
+    // Blocage largeur pour texte si réduire la largeur imposerait d'augmenter la hauteur
+    // (cas "resize gauche/droite" où l'utilisateur force au delà du minimum).
+    if (item.type === "text") {
+      const horizontalOnly = (affectsLeft || affectsRight) && !affectsTop && !affectsBottom;
+      if (horizontalOnly) {
+        // Après les clamps, nextH correspond à la hauteur stable du cadre.
+        // On calcule la largeur minimale qui permet au texte de tenir dans nextH.
+        const maxWAllowed = Math.max(minW, zone.width - clamp(nextX, 0, zone.width));
+        const minWidthToFit = getMinWidthToFitHeight(item, nextH, Math.min(maxWAllowed, Math.max(nextW, originW)));
+        if (nextW < minWidthToFit) {
+          if (affectsLeft) {
+            nextX -= (minWidthToFit - nextW);
+          }
+          nextW = minWidthToFit;
+        }
+      }
     }
 
     // Clamp within safe zone
@@ -1283,20 +1423,6 @@ function startResize(event, id, mode = "br") {
     item.y = nextY;
     item.w = nextW;
     item.h = nextH;
-    if (item.type === "text") {
-      // Auto-fit MVP: resize plus petit => font-size reduit pour rester lisible.
-      const padding = item.padding ?? 6;
-      const usableW = item.w - 2 * padding;
-      const usableH = item.h - 2 * padding;
-      if (usableW <= 0 || usableH <= 0) {
-        item.fontSize = 8;
-      } else {
-        const ratioW = usableW / originUsableW;
-        const ratioH = usableH / originUsableH;
-        const next = Math.floor(originFontSize * Math.min(ratioW, ratioH));
-        item.fontSize = Math.max(8, Math.min(96, next));
-      }
-    }
     syncPropertyInputs();
     renderAnnotations();
   };
@@ -1405,17 +1531,28 @@ function redo() {
 
 function syncPropertyInputs() {
   const item = getSelectedAnnotation();
+  const isText = !!item && item.type === "text";
+  if (textPropsPanel) {
+    textPropsPanel.classList.toggle("hidden", !isText);
+  }
   if (!item) return;
   propWidth.value = String(Math.round(item.w || 180));
   propHeight.value = String(Math.round(item.h || 120));
   propRotation.value = String(Math.round(item.rotation || 0));
   propOpacity.value = String(Math.round(item.opacity ?? 100));
-  propTextColor.value = item.textColor || "#111111";
-  propBgColor.value = item.bgColor || "#fff8a6";
-  // Le champ Fond n'est appliqué que si l'utilisateur le modifie explicitement.
-  propBgColor.dataset.touched = "0";
-  propPadding.value = String(Math.round(item.padding ?? 6));
-  if (item.type === "text") {
+  if (isText) {
+    propTextColor.value = item.textColor || "#111111";
+
+    // Fond transparent par défaut: on affiche une "case vide".
+    // input[type=color] ne supporte pas une valeur vide, donc on met un fallback,
+    // et on pilote l'apparence via une classe CSS.
+    const bgIsTransparent = !item.bgColor;
+    propBgColor.value = bgIsTransparent ? "#ffffff" : item.bgColor;
+    propBgColorLabel?.classList?.toggle?.("is-transparent", bgIsTransparent);
+
+    // Le champ Fond n'est appliqué que si l'utilisateur le modifie explicitement.
+    propBgColor.dataset.touched = "0";
+    propPadding.value = String(Math.round(item.padding ?? 6));
     propFontFamily.value = item.fontFamily || "Arial";
     propFontSize.value = String(Math.round(item.fontSize ?? 14));
   }
@@ -1538,6 +1675,8 @@ propTextColor?.addEventListener?.("input", applySelectedPropertiesLive);
 propBgColor?.addEventListener?.("input", applySelectedPropertiesLive);
 propBgColor?.addEventListener?.("input", () => {
   propBgColor.dataset.touched = "1";
+  // Si l'utilisateur touche "Fond", ce n'est plus transparent.
+  propBgColorLabel?.classList?.remove?.("is-transparent");
 });
 propPadding?.addEventListener?.("input", applySelectedPropertiesLive);
 propFontFamily?.addEventListener?.("change", applySelectedPropertiesLive);
@@ -1581,7 +1720,20 @@ window.maniPdfApi?.onSaveRequested?.(saveSession);
 
 // Quitte le mode edition texte uniquement si clic en dehors de la case texte en edition.
 document.addEventListener("mousedown", (event) => {
-  if (!state.editingAnnotationId) return;
+  // Clic gauche uniquement: on ne veut pas casser le menu contextuel.
+  if (event.button !== 0) return;
+  // Si on n'édite pas, un clic dans le document hors annotation doit désélectionner.
+  if (!state.editingAnnotationId) {
+    if (!state.selectedAnnotationId) return;
+    const inViewer = !!event.target?.closest?.(".viewer");
+    if (!inViewer) return;
+    const clickedId = event.target?.closest?.("[data-id]")?.getAttribute?.("data-id") || null;
+    if (clickedId) return;
+    state.selectedAnnotationId = null;
+    syncPropertyInputs();
+    renderAnnotations();
+    return;
+  }
   const editingNode = annotationLayer?.querySelector?.(`[data-id="${state.editingAnnotationId}"]`);
   if (!editingNode) return;
   // IMPORTANT: si l'événement provient de l'annotation en édition (même avant rerender),
@@ -1600,7 +1752,37 @@ document.addEventListener("mousedown", (event) => {
     if (hit) return;
   } catch {}
   if (editingNode.contains(event.target)) return;
+
+  // On clique hors du champ texte: on sort du mode édition et on persiste le contenu.
+  const tab = getActiveTab();
+  if (tab) {
+    try {
+      const id = state.editingAnnotationId;
+      const item = currentPageAnnotations(tab).find((a) => a.id === id);
+      const ta = editingNode.querySelector?.("textarea.text-editor");
+      if (item && item.type === "text" && ta) {
+        captureSnapshot(tab);
+        item.text = ta.value || "";
+      }
+    } catch {}
+    scheduleAutoSave();
+  }
+
   state.editingAnnotationId = null;
+  // Si on clique hors cadre, la fenêtre ne doit plus être sélectionnée (plus de contour bleu).
+  // Mais si on clique sur une AUTRE annotation, on laisse le gestionnaire de click
+  // appliquer la sélection correspondante.
+  try {
+    const clickedId = event.target?.closest?.("[data-id]")?.getAttribute?.("data-id") || null;
+    if (!clickedId) {
+      state.selectedAnnotationId = null;
+    }
+  } catch {
+    state.selectedAnnotationId = null;
+  }
+  try {
+    document.activeElement?.blur?.();
+  } catch {}
   renderAnnotations();
 });
 

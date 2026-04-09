@@ -30,19 +30,6 @@
         <label>Hauteur <input id="propHeight" type="number" min="20" value="120" /></label>
         <label>Rotation <input id="propRotation" type="number" min="0" max="360" value="0" /></label>
         <label>Opacite (%) <input id="propOpacity" type="number" min="0" max="100" value="100" /></label>
-        <label>Txt <input id="propTextColor" type="color" value="#111111" /></label>
-        <label>Fond <input id="propBgColor" type="color" value="#fff8a6" /></label>
-        <label>Marges <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
-        <label>Police
-          <select id="propFontFamily">
-            <option value="Arial" selected>Arial</option>
-            <option value="Times New Roman">Times New Roman</option>
-            <option value="Courier New">Courier New</option>
-            <option value="Georgia">Georgia</option>
-          </select>
-        </label>
-        <label>Taille <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
-        <button id="applyPropsBtn" data-tooltip="Applique les propriétés visuelles au bloc sélectionné.">✅ Appliquer</button>
         <button id="mergeBtn" data-tooltip="Fusionne les PDFs ouverts en un seul fichier.">🧩 Fusion</button>
         <button id="splitBtn" data-tooltip="Extrait une plage de pages du PDF actif.">✂️ Split</button>
         <button id="compressBtn" data-tooltip="Crée une version compressée du PDF actif.">🗜️ Compression</button>
@@ -54,6 +41,21 @@
         <span id="pageInfo">Aucun PDF</span>
         <button id="nextBtn" data-tooltip="Affiche la page suivante.">Page + ▶</button>
         <button id="saveSessionBtn" data-tooltip="Sauvegarde l'état courant (onglets, positions, annotations).">💾 Sauver session</button>
+      </div>
+      <div id="textPropsPanel" class="text-props-panel hidden" aria-label="Propriétés du champ texte sélectionné">
+        <label class="color-field" id="propTextColorLabel">Txt <input id="propTextColor" type="color" value="#111111" /></label>
+        <label class="color-field is-transparent" id="propBgColorLabel">Fond <input id="propBgColor" type="color" value="#ffffff" /></label>
+        <label>Marges <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
+        <label>Police
+          <select id="propFontFamily">
+            <option value="Arial" selected>Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Georgia">Georgia</option>
+          </select>
+        </label>
+        <label>Taille <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
+        <button id="applyPropsBtn" data-tooltip="Applique les propriétés au champ texte sélectionné.">✅ Appliquer</button>
       </div>
     </header>
 

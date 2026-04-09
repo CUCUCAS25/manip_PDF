@@ -69,6 +69,38 @@ h1 {
   flex-wrap: wrap;
 }
 
+.text-props-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #e3e3e3;
+  flex-wrap: wrap;
+}
+.text-props-panel.hidden {
+  display: none;
+}
+
+label.color-field input[type="color"] {
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #bdbdbd;
+  border-radius: 4px;
+  background: transparent;
+  vertical-align: middle;
+}
+label.color-field.is-transparent input[type="color"] {
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.12) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.12) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+}
+
 .actions label {
   font-size: 12px;
 }
