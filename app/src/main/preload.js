@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("maniPdfApi", {
   },
   saveSession: (payload) => ipcRenderer.invoke("session:save", payload),
   loadSession: () => ipcRenderer.invoke("session:load"),
+  savePdfAsDialog: (suggestedName) => ipcRenderer.invoke("dialog:savePdfAs", suggestedName),
+  exportPdfWithAnnotations: (payload) => ipcRenderer.invoke("pdf:export-with-annotations", payload),
   createJob: (input) => ipcRenderer.invoke("job:create", input),
   listJobs: () => ipcRenderer.invoke("job:list"),
   pythonHealth: () => ipcRenderer.invoke("python:health"),
@@ -33,5 +35,10 @@ contextBridge.exposeInMainWorld("maniPdfApi", {
   onOpenFromMenu: (cb) => ipcRenderer.on("pdf:open-from-menu", (_, path) => cb(path)),
   onSetLanguage: (cb) => ipcRenderer.on("app:set-language", (_, lang) => cb(lang)),
   onAutosaveRequested: (cb) => ipcRenderer.on("session:autosave-requested", cb),
-  onSaveRequested: (cb) => ipcRenderer.on("session:save-requested", cb)
+  onSaveAsRequested: (cb) => ipcRenderer.on("pdf:save-as-requested", cb),
+  quitApp: () => ipcRenderer.invoke("app:quit"),
+  getWindowFullscreen: () => ipcRenderer.invoke("window:is-fullscreen"),
+  onFullscreenChanged: (cb) => ipcRenderer.on("window:fullscreen-changed", (_, full) => cb(full)),
+  onToolbarF10Toggle: (cb) => ipcRenderer.on("toolbar:f10-toggle", () => cb()),
+  onPdfToolAction: (cb) => ipcRenderer.on("app:pdf-tool", (_, action) => cb(action))
 });

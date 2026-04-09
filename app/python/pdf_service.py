@@ -6,7 +6,7 @@ import logging
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from pdf_ops import compress_pdf, merge_pdfs, protect_pdf, split_pdf, unprotect_pdf
+from pdf_ops import apply_annotations, compress_pdf, merge_pdfs, protect_pdf, split_pdf, unprotect_pdf
 from pdf_validation import validate_pdf_path
 
 LOG_VERBOSE = os.environ.get("MANI_PDF_PY_LOGS") != "0"
@@ -76,6 +76,16 @@ class Handler(BaseHTTPRequestHandler):
                     payload.get("input_path", ""),
                     payload.get("output_path", ""),
                     payload.get("password", ""),
+                )
+                self._json_response(200, {"ok": True, "output_path": output})
+                return
+
+            if self.path == "/apply-annotations":
+                output = apply_annotations(
+                    payload.get("input_path", ""),
+                    payload.get("output_path", ""),
+                    payload.get("canvases_px_by_page", {}) or {},
+                    payload.get("annotations_by_page", {}) or {},
                 )
                 self._json_response(200, {"ok": True, "output_path": output})
                 return

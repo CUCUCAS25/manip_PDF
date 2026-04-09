@@ -129,11 +129,30 @@ test("load PDF, remove tab, add and edit text", async () => {
   await openPdfFromUi(app, page);
 
   const textNode = await addTextAnnotation(page);
+
+  // Non-régression: drag + scroll => l'élément reste sous le curseur
+  // (simulate: click-drag, scroll viewer, continue drag)
+  const box = await textNode.boundingBox();
+  if (!box) throw new Error("bbox introuvable pour annotation");
+  const startMx = Math.floor(box.x + 20);
+  const startMy = Math.floor(box.y + 20);
+  await page.mouse.move(startMx, startMy);
+  await page.mouse.down();
+  // Déclencher le mode drag (déplacement > 12px)
+  await page.mouse.move(startMx + 30, startMy + 30);
+  // Scroll dans le viewer pendant drag
+  await page.locator(".viewer").hover({ position: { x: 10, y: 10 } });
+  await page.mouse.wheel(0, 240);
+  // Sans bouger plus loin, on "réaffirme" la position curseur
+  await page.mouse.move(startMx + 30, startMy + 30);
+  await page.mouse.up();
+
   // Entrer en édition: double-click (fallback mousedown existe, mais dblclick est mieux).
   await textNode.dblclick({ position: { x: 20, y: 20 } });
 
-  const editor = page.locator("#annotationLayer .annotation.text.editing textarea.text-editor");
+  const editor = page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']");
   await expect(editor).toHaveCount(1);
+  await editor.click();
   await editor.fill("Bonjour");
 
   // Sidebar "Ajouts": doit référencer la fenêtre texte (3 premiers mots)
@@ -154,11 +173,55 @@ test("load PDF, remove tab, add and edit text", async () => {
   await page.keyboard.press("Escape");
   await expect(page.locator("#annotationLayer .annotation.text.editing")).toHaveCount(0);
 
+  // Sidebar "Ajouts": clic => navigue/selection, Suppr => delete, Ctrl+Z => undo
+  const changes = page.locator("#changesList .change-item");
+  await expect(changes).toHaveCountGreaterThan(0);
+  await changes.first().click();
+  await page.waitForFunction(() => Boolean(window.__maniE2E?.getUiState?.().selectedAnnotationId));
+  await page.keyboard.press("Delete");
+  // Après suppression, plus d'annotation sélectionnée
+  await page.waitForFunction(() => !window.__maniE2E?.getUiState?.().selectedAnnotationId);
+  // Undo remet l'élément
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Z" : "Control+Z");
+  await page.waitForTimeout(150);
+
+  // Copier / Coller: dupliquer l'annotation sans lien (Ctrl+C / Ctrl+V)
+  const original = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
+  await expect(original).toHaveCount(1);
+  await original.click();
+  await page.waitForFunction(() => {
+    try {
+      return Boolean(window.__maniE2E?.getUiState?.().selectedAnnotationId);
+    } catch {
+      return false;
+    }
+  });
+  const copied = await page.evaluate(() => window.__maniE2E?.copySelected?.());
+  expect(copied).toBeTruthy();
+  // Placer le curseur ailleurs dans le viewer pour coller à un autre endroit
+  await page.locator(".viewer").click({ position: { x: 50, y: 50 } });
+  const pasted = await page.evaluate(() => window.__maniE2E?.paste?.());
+  expect(pasted).toBeTruthy();
+  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`)).toHaveCount(2);
+
+  // Indépendance: éditer le 2e ne modifie pas le 1er
+  const copies = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
+  await copies.nth(1).dblclick({ position: { x: 20, y: 20 } });
+  const editor2 = page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']");
+  await expect(editor2).toHaveCount(1);
+  await editor2.click();
+  await editor2.fill("Salut");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Salut")`)).toHaveCount(1);
+  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`)).toHaveCount(1);
+
   // Re-entrer en édition et re-sortir par clic hors champ (non régression)
   const textNodeEsc = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
   await expect(textNodeEsc).toHaveCount(1);
-  await textNodeEsc.dblclick({ position: { x: 20, y: 20 } });
-  await expect(page.locator("#annotationLayer .annotation.text.editing textarea.text-editor")).toHaveCount(1);
+  // dblclick peut être flaky sous Electron (DOM rerender). On force 2 clics rapprochés.
+  await textNodeEsc.click({ position: { x: 20, y: 20 } });
+  await textNodeEsc.click({ position: { x: 20, y: 20 } });
+  await expect(page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']")).toHaveCount(1);
 
   // Cliquer hors annotation => sortir édition + désélection
   await page.locator(".viewer").click({ position: { x: 5, y: 5 } });

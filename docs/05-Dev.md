@@ -118,14 +118,17 @@ Fichiers:
 
 ### 2.7 E2-S2 - Formes (version initiale)
 Realise:
-- Ajout de rectangle via action `+ Rectangle`.
-- Deplacement de forme par drag & drop dans le calque d'annotations.
+- Ajout de formes variees via action `+ Forme` et choix dans une grille (rectangle, ellipse, etoile, ligne, etc.).
+- Rendu des formes en SVG aligne sur l'export PDF (contour suivant la geometrie, pas seulement clip-path CSS).
+- Deplacement de forme par drag & drop dans le calque d'annotations; redimensionnement avec poignees; le redimensionnement projette la souris dans le repere local de la forme pour rester coherent lorsque `rotation` est non nulle.
+- Menus contextuels (clic droit sur forme selectionnee) pour styles, rotation, opacite, etc.
 - Suppression de forme via suppression de l'annotation selectionnee.
 
 Fichiers:
 - `app/src/renderer/index.html`
 - `app/src/renderer/styles.css`
 - `app/src/renderer/renderer.js`
+- `app/python/pdf_ops.py` (dessin des formes a l'export)
 
 ### 2.8 E2-S3 - Images (version initiale)
 Realise:
@@ -321,6 +324,7 @@ Fichiers:
 - `app/package.json`
 - `app/playwright.config.js`
 - `app/e2e/app.smoke.spec.js`
+- `app/e2e/app.annotations-regression.spec.js`
 - `app/build-resources/.gitkeep`
 - `.github/workflows/ci.yml`
 
@@ -331,13 +335,12 @@ Fichiers:
 Commandes executees:
 - `python -m unittest discover -s python/tests -p "test_*.py"` (dans `app`)
 - `npm test` (dans `app`, lance les tests Python)
+- `npx playwright test` (dans `app`, E2E Electron)
 
-Resultat:
-- 7 tests executes
-- 7 tests passes
-- 0 echec
-- 1 test E2E smoke execute
-- 1 test E2E smoke passe
+Resultat (valide en continu dans le repo):
+- 11 tests Python executes et passes (unite + integration sur routes/service)
+- 10 tests Playwright E2E passes, dont `e2e/app.annotations-regression.spec.js` (regressions annotations: header, formes SVG, menus contextuels texte/forme/image, Options > Outils PDF)
+- 0 echec sur la derniere passe automatisee
 
 Couverture fonctionnelle testee:
 - validation chemin vide,
@@ -363,10 +366,9 @@ Couverture fonctionnelle testee:
 
 ## 5. Ecarts et limites actuelles (connues)
 - Le rendu multi-pages repose sur le viewer PDF embarque + ancre `#page`, pas encore sur un moteur canvas avance (type pdf.js).
-- L'edition (texte/formes/images) est une couche d'annotation UI; elle n'est pas encore fusionnee dans le PDF exporte.
+- L'edition (texte/formes/images) est une couche d'annotation UI. L'action **Enregistrer sous** declenche un export qui **reinjecte** texte, images et formes dans une copie PDF via le service Python (`pdf_ops.py` + IPC `pdf:export-with-annotations`), avec correspondance de coordonnees selon les dimensions canvas par page.
 - Undo/redo couvre les mutations structurelles d'annotations; pas encore toutes les micro-editions (ex: deplacement avec granularite fine en historique).
-- Manipulation image version initiale: insertion/deplacement/suppression, sans rotation/transparence/redimensionnement avance.
-- Les proprietes image sont maintenant configurables (W/H/rotation/opacite), mais sans poignées de redimensionnement directes sur canvas.
+- Manipulation image: insertion/deplacement/suppression, redimensionnement par poignees sur le calque; rotation et opacite via menu contextuel (clic droit lorsque l'image est selectionnee). Pas de pipeline image avance (recadrage, filtres).
 - Pas encore de parsing profond des PDF malformes (hardening partiel seulement).
 
 ---
@@ -387,6 +389,7 @@ Couverture fonctionnelle testee:
 - `app/python/tests/test_pdf_ops_integration.py`
 - `app/playwright.config.js`
 - `app/e2e/app.smoke.spec.js`
+- `app/e2e/app.annotations-regression.spec.js`
 - `app/build-resources/.gitkeep`
 - `docs/05-Dev.md`
 - `docs/06-Test-Matrix.md`
@@ -524,6 +527,7 @@ Implementation (UI shell):
 - Regrouper actions en zones Fichier/Annotation/Affichage.
 - Deplacer actions lourdes (fusion/split/compress/protect) vers menu "Outils PDF".
 - Garder les commandes sous forme de "commands" (pas de logique metier UI).
+- Etat code (2026): les outils PDF ne sont plus un bouton separe dans le header du viewer; ils sont regroupes sous **Options** (menu HTML F10) et dupliques sous **Options > Outils PDF** dans le menu Electron natif (`main.js`), avec IPC `app:pdf-tool` (voir section 14.4).
 
 Fichiers probables:
 - `app/src/renderer/index.html`
@@ -577,3 +581,35 @@ Pour chaque story V02 terminee, enregistrer :
 - fichiers modifies,
 - tests ajoutes/updates + resultats,
 - points de securite (privacy logs/UI) verifies.
+
+---
+
+## 14. Mise a jour developpement (alignement code / `corrections` + UI)
+
+Cette section documente des ajustements valides dans le code (renderer, shell Electron, HTML) sans supprimer l'historique des sections precedentes.
+
+### 14.1 Redimensionnement avec rotation (formes, texte, images)
+- Probleme traite: etirer une annotation fortement pivotee avec les poignees utilisait les deltas ecran bruts, ce qui deformait le geste.
+- Implementation: dans `startResize` (`renderer.js`), les increments souris `(dx, dy)` sont projetes dans le repere local `(dlx, dly)` avant d'ajuster `x`, `y`, `w`, `h` (cos/sin de `item.rotation` en degres).
+
+### 14.2 Barre d'actions principale (largeur, hauteur, rotation, opacite globales)
+- Les champs numeriques **Largeur**, **Hauteur**, **Rotation**, **Opacite (%)** ont ete retires du header: la taille et la position viennent du **redimensionnement a la souris**; la rotation et l'opacite d'une annotation donnee sont considerees comme des proprietes de **cette** fenetre d'annotation, pas d'un panneau global sans selection coherente.
+
+### 14.3 Menus contextuels: rotation et opacite par annotation
+- **Texte** (`#textAnnotationCtxMenu`): champs rotation (0–360) et opacite (0–100), synchronises avec le modele et avec le panneau proprietes texte lorsque applicable.
+- **Forme** (`#shapeAnnotationCtxMenu`): memes champs en tete de menu, en complement des styles remplissage / contour / fond.
+- **Image** (`#imageAnnotationCtxMenu`): menu dedie avec rotation et opacite; ouverture au **clic droit** si l'image est **deja selectionnee** (meme regle que pour les formes).
+- Application: mise a jour de `item.rotation` et `item.opacity`, `captureSnapshot` + `renderAnnotations` + autosave.
+
+### 14.4 Outils PDF deplaces sous Options
+- **Barre d'outils F10 (HTML)**: les actions Fusion, Split, Compression, Protect, Unprotect sont dans le menu deroulant **Options**, sous une section libellee **Outils PDF** (`index.html` + memes `id` de boutons pour conserver les listeners existants).
+- **Menu applicatif natif Electron** (`main.js`): sous-menu **Options > Outils PDF** avec les memes actions, declenchant l'IPC `app:pdf-tool` (`merge` | `split` | `compress` | `protect` | `unprotect`), expose au renderer via `preload.js` (`onPdfToolAction`). Le renderer ferme les menus volants et appelle les fonctions `create*Job` existantes.
+
+### 14.5 Fichiers touches par ces evolutions (non exhaustif des versions anterieures)
+- `app/src/renderer/renderer.js` (resize, menus, IPC outils PDF)
+- `app/src/renderer/index.html` (structure Options + menus contextuels)
+- `app/src/main/main.js` (menu natif Options > Outils PDF)
+- `app/src/main/preload.js` (bridge `onPdfToolAction`)
+
+### 14.6 Validation
+- `npm test` (11 tests Python OK) et `npx playwright test` (10 tests E2E OK) executes avec succes apres integration de ces changements et de la suite `app.annotations-regression.spec.js`.

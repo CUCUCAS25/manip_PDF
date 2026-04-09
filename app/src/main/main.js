@@ -69,13 +69,28 @@ function broadcastFullscreenState() {
 }
 
 function createWindow() {
+  const startMaximized = !process.env.MANI_PDF_E2E;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false
+    }
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    try {
+      if (startMaximized) mainWindow.maximize();
+    } catch {
+      /* ignore */
+    }
+    try {
+      mainWindow.show();
+    } catch {
+      /* ignore */
     }
   });
 
@@ -117,10 +132,11 @@ function createMenu() {
           }
         },
         {
-          label: "Save Session",
+          label: "Enregistrer sous…",
+          accelerator: "Ctrl+S",
           click: () => {
             if (!mainWindow) return;
-            mainWindow.webContents.send("session:save-requested");
+            mainWindow.webContents.send("pdf:save-as-requested");
           }
         },
         { type: "separator" },
@@ -144,6 +160,17 @@ function createMenu() {
             { label: "Espanol", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "es") },
             { label: "Portugues", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "pt") }
           ]
+        },
+        { type: "separator" },
+        {
+          label: "Outils PDF",
+          submenu: [
+            { label: "Fusion", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "merge") },
+            { label: "Split", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "split") },
+            { label: "Compression", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "compress") },
+            { label: "Protect", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "protect") },
+            { label: "Unprotect", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "unprotect") }
+          ]
         }
       ]
     }
@@ -165,7 +192,14 @@ function startPythonService() {
   const scriptPath = path.join(__dirname, "..", "..", "python", "pdf_service.py");
   pythonProcess = spawn("python", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
   pythonProcess.stdout.on("data", () => {});
-  pythonProcess.stderr.on("data", () => {});
+  pythonProcess.stderr.on("data", (chunk) => {
+    try {
+      const s = chunk?.toString?.() || String(chunk);
+      if (s.trim()) console.error("[mani-pdf python]", s.trimEnd());
+    } catch {
+      /* ignore */
+    }
+  });
 }
 
 function stopPythonService() {
@@ -394,6 +428,59 @@ ipcMain.handle("session:load", async () => {
     } catch {
       return { ok: false, error: `Echec chargement session: ${error.message}` };
     }
+  }
+});
+
+ipcMain.handle("dialog:savePdfAs", async (_, suggestedName) => {
+  if (!mainWindow) return { ok: false, error: "Fenetre principale indisponible." };
+  const name = typeof suggestedName === "string" && suggestedName.trim() ? suggestedName.trim() : "document_modifie.pdf";
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "Enregistrer sous",
+    defaultPath: name,
+    filters: [{ name: "PDF", extensions: ["pdf"] }]
+  });
+  if (result.canceled || !result.filePath) return { ok: false, cancelled: true };
+  return { ok: true, path: result.filePath };
+});
+
+ipcMain.handle("pdf:export-with-annotations", async (_, payload) => {
+  try {
+    const body = JSON.stringify(payload || {});
+    return await new Promise((resolve) => {
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port: 8765,
+          path: "/apply-annotations",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body)
+          },
+          timeout: 60000
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => {
+            try {
+              resolve(JSON.parse(data || "{}"));
+            } catch {
+              resolve({ ok: false, error: "Reponse export invalide." });
+            }
+          });
+        }
+      );
+      req.on("error", (err) => resolve({ ok: false, error: err.message }));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve({ ok: false, error: "Timeout export PDF." });
+      });
+      req.write(body);
+      req.end();
+    });
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
   }
 });
 
