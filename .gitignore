@@ -10,3 +10,10 @@ __pycache__/
 *.pyc
 Thumbs.db
 .DS_Store
+
+# Documentation (hors dépôt)
+docs/
+
+# Artefacts de tests — conserver uniquement le PDF de référence
+tests/*
+!tests/formulaire_test.pdf
