@@ -73,6 +73,7 @@ const propHalo = document.getElementById("propHalo");
 const presetPenBtn = document.getElementById("presetPenBtn");
 const presetHighlighterBtn = document.getElementById("presetHighlighterBtn");
 const applyPropsBtn = document.getElementById("applyPropsBtn");
+const applyBgBtn = document.getElementById("applyBgBtn");
 const mergeBtn = document.getElementById("mergeBtn");
 const splitBtn = document.getElementById("splitBtn");
 const compressBtn = document.getElementById("compressBtn");
@@ -107,10 +108,20 @@ const toolTip = document.getElementById("toolTip");
 const shapeModal = document.getElementById("shapeModal");
 const shapeGrid = document.getElementById("shapeGrid");
 const closeShapeModalBtn = document.getElementById("closeShapeModalBtn");
-// Modale "Langue" supprimée: la langue se choisit via menu natif Options > Langue.
+// Langue : menu natif Options > Langue + barre d'outils custom.
 let activeTooltipTarget = null;
 const pdfToolsBtn = document.getElementById("pdfToolsBtn");
 const pdfToolsMenu = document.getElementById("pdfToolsMenu");
+const toolbarFileBtn = document.getElementById("toolbarFileBtn");
+const toolbarFileMenu = document.getElementById("toolbarFileMenu");
+const toolbarOptionsBtn = document.getElementById("toolbarOptionsBtn");
+const toolbarOptionsMenu = document.getElementById("toolbarOptionsMenu");
+const toolbarOpenPdfBtn = document.getElementById("toolbarOpenPdfBtn");
+const toolbarSaveSessionBtn = document.getElementById("toolbarSaveSessionBtn");
+const toolbarQuitBtn = document.getElementById("toolbarQuitBtn");
+const toolbarCloseBtn = document.getElementById("toolbarCloseBtn");
+const appToolbar = document.getElementById("appToolbar");
+const toolbarF10Hint = document.getElementById("toolbarF10Hint");
 
 const state = {
   tabs: [],
@@ -121,7 +132,10 @@ const state = {
   zoomScale: 1,
   language: "fr",
   // E7: tracking simple du "risque de perte" (modifs non sauvegardées).
-  isDirty: false
+  isDirty: false,
+  // Clipboard annotations (Ctrl+C / Ctrl+X / Ctrl+V)
+  clipboard: null,
+  lastPointer: null // { page, x, y }
 };
 let autosaveDebounce = null;
 let interactionMode = null; // "drag" | "resize" | null
@@ -151,6 +165,16 @@ function scheduleSidebarUpdate() {
       renderChanges();
     } catch {}
   }, 60);
+}
+
+/** Logs fichier (main) + console pour diagnostiquer la colonne « Ajouts ». */
+function logChangesSidebarDiag(tag, data) {
+  try {
+    log(`changes:diag:${tag}`, data);
+  } catch {}
+  try {
+    window.maniPdfApi?.log?.(`changes:diag:${tag}`, data)?.catch?.(() => {});
+  } catch {}
 }
 
 function annotationTypeLabel(a) {
@@ -240,19 +264,92 @@ function renderChanges() {
     sum.textContent = annotationSummary(a);
     row.appendChild(top);
     row.appendChild(sum);
-    row.onclick = () => {
+    row.addEventListener("mousedown", (ev) => {
       try {
-        setActivePage(page);
-        const pageNode = pagesContainer?.querySelector?.(`.pdf-page[data-page="${page}"]`);
-        pageNode?.scrollIntoView?.({ block: "start", inline: "nearest" });
+        logChangesSidebarDiag("row-mousedown", {
+          button: ev.button,
+          annotationId: a.id,
+          page,
+          targetTag: ev.target?.tagName || null,
+          inChangesList: Boolean(ev.target?.closest?.("#changesList")),
+          inViewer: Boolean(ev.target?.closest?.(".viewer"))
+        });
+      } catch (err) {
+        logChangesSidebarDiag("row-mousedown:error", { message: String(err?.message || err) });
+      }
+    });
+    row.addEventListener("click", (ev) => {
+      try {
+        const tab = getActiveTab();
+        logChangesSidebarDiag("click:start", {
+          annotationId: a.id,
+          annotationPage: page,
+          targetTag: ev.target?.tagName || null,
+          targetClass: typeof ev.target?.className === "string" ? ev.target.className : null,
+          rowDatasetId: row.dataset.id || null,
+          tabId: tab?.id || null,
+          currentPageBefore: tab?.currentPage ?? null,
+          prevSelected: state.selectedAnnotationId || null,
+          hasPagesContainer: Boolean(pagesContainer),
+          hasAnnotationLayer: Boolean(annotationLayer)
+        });
+        log("changes:click", { id: a.id, page, prevSelected: state.selectedAnnotationId || null });
+        // Important: définir la sélection AVANT le changement de page,
+        // pour que le renderAnnotations déclenché par setActivePage la prenne en compte.
         state.selectedAnnotationId = a.id;
         state.editingAnnotationId = null;
+        setActivePage(page);
+        const pageNode = pagesContainer?.querySelector?.(`.pdf-page[data-page="${page}"]`);
+        logChangesSidebarDiag("click:after-setActivePage", {
+          currentPageAfter: tab?.currentPage ?? null,
+          selectedAnnotationId: state.selectedAnnotationId || null,
+          pageNodeFound: Boolean(pageNode),
+          activePdfPageClass: pagesContainer?.querySelector?.(".pdf-page.active")?.getAttribute?.("data-page") || null,
+          annosOnCurrentPage: tab ? currentPageAnnotations(tab).length : 0,
+          itemOnCurrentPage: tab ? Boolean(currentPageAnnotations(tab).some((x) => x.id === a.id)) : false
+        });
+        pageNode?.scrollIntoView?.({ block: "start", inline: "nearest" });
         syncPropertyInputs();
+        // Sécurise le contour « selected » sur la feuille (setActivePage rend déjà, mais évite un état stale).
         renderAnnotations();
         requestAnimationFrame(() => {
-          const node = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
-          node?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+          try {
+            const node = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
+            const selectedDom = annotationLayer?.querySelector?.(".annotation.selected");
+            logChangesSidebarDiag("click:after-rAF", {
+              annotationId: a.id,
+              foundAnnotationNode: Boolean(node),
+              selectedDomId: selectedDom?.getAttribute?.("data-id") || null,
+              selectedStateId: state.selectedAnnotationId || null,
+              layerW: annotationLayer?.style?.width || null,
+              layerH: annotationLayer?.style?.height || null
+            });
+            node?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+            log("changes:click:after", { id: a.id, foundOnPage: !!node, selected: state.selectedAnnotationId || null });
+          } catch (err2) {
+            logChangesSidebarDiag("click:after-rAF:error", { message: String(err2?.message || err2) });
+          }
         });
+      } catch (err) {
+        logChangesSidebarDiag("click:error", { message: String(err?.message || err) });
+      }
+    });
+    row.oncontextmenu = (ev) => {
+      try {
+        ev.preventDefault();
+      } catch {}
+      try {
+        // Le clic droit doit aussi sélectionner et naviguer (listener "click" sur la ligne).
+        row.click();
+      } catch {}
+      try {
+        const menu = ensureChangesContextMenu();
+        menu.classList.remove("hidden");
+        const margin = 8;
+        const x = clamp((ev.clientX ?? 0) + 2, margin, window.innerWidth - 240 - margin);
+        const y = clamp((ev.clientY ?? 0) + 2, margin, window.innerHeight - 80 - margin);
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
       } catch {}
     };
     changesList.appendChild(row);
@@ -435,6 +532,133 @@ function cancelPointerInteraction() {
   interactionMode = null;
 }
 
+function newAnnotationId() {
+  return `${Date.now()}-${Math.random()}`;
+}
+
+function deepClone(obj) {
+  // Suffisant ici: nos annotations sont sérialisables (pas de fonctions, pas de cycles).
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function cloneForClipboard(item) {
+  // On ne conserve pas la position (x/y) ni l'id: le collage se fait au curseur.
+  // On garde toutes les autres props pour reproduire l'état à l'instant du copier/couper.
+  try {
+    const cloned = deepClone(item);
+    delete cloned.id;
+    delete cloned.x;
+    delete cloned.y;
+    return cloned;
+  } catch {
+    try {
+      const out = {};
+      Object.keys(item || {}).forEach((k) => {
+        if (k === "id" || k === "x" || k === "y") return;
+        out[k] = item[k];
+      });
+      return out;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function getSelectedAnnotationFromActivePage(tab) {
+  if (!tab || !state.selectedAnnotationId) return null;
+  return currentPageAnnotations(tab).find((a) => a.id === state.selectedAnnotationId) || null;
+}
+
+function findAnnotationLocation(tab, id) {
+  if (!tab?.annotationsByPage || !id) return null;
+  const pages = Object.keys(tab.annotationsByPage);
+  for (const page of pages) {
+    const arr = tab.annotationsByPage[page] || [];
+    const idx = arr.findIndex((a) => a.id === id);
+    if (idx >= 0) return { page: Number(page) || 1, arr, idx, item: arr[idx] };
+  }
+  return null;
+}
+
+function getSelectedAnnotationFromTab(tab) {
+  const id = state.selectedAnnotationId;
+  if (!tab || !id) return null;
+  return findAnnotationLocation(tab, id)?.item || null;
+}
+
+function capturePointerInPage(event) {
+  try {
+    let pageNode = event?.target?.closest?.(".pdf-page");
+    if (!pageNode) {
+      // Fallback: clic sur un "vide" du viewer => on se base sur la page active.
+      pageNode = pagesContainer?.querySelector?.(".pdf-page.active") || null;
+      if (!pageNode) return;
+    }
+    const page = Number(pageNode.dataset.page) || 1;
+    const canvas = pageNode.querySelector?.("canvas.pdf-canvas");
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = clamp((event.clientX ?? 0) - rect.left, 0, Math.max(0, rect.width));
+    const y = clamp((event.clientY ?? 0) - rect.top, 0, Math.max(0, rect.height));
+    // Stocker en "coordonnées canvas" (px) : cohérent avec annotations.
+    // rect.{width,height} sont en CSS px, mais le canvas est en px réels. On scale.
+    const sx = rect.width > 0 ? canvas.width / rect.width : 1;
+    const sy = rect.height > 0 ? canvas.height / rect.height : 1;
+    state.lastPointer = { page, x: x * sx, y: y * sy };
+  } catch {}
+}
+
+document.addEventListener(
+  "mousedown",
+  (e) => {
+    if (e.button !== 0) return;
+    if (!e.target?.closest?.(".viewer")) return;
+    capturePointerInPage(e);
+  },
+  true
+);
+
+// ---------------------------
+// Context menu (sidebar "Ajouts")
+// ---------------------------
+let changesContextMenu = null;
+function ensureChangesContextMenu() {
+  if (changesContextMenu) return changesContextMenu;
+  const node = document.createElement("div");
+  node.id = "changesContextMenu";
+  node.className = "menu hidden";
+  node.setAttribute("role", "menu");
+  const del = document.createElement("button");
+  del.type = "button";
+  del.setAttribute("role", "menuitem");
+  del.textContent = "🗑️ Supprimer";
+  del.onclick = () => {
+    try {
+      hideChangesContextMenu();
+      deleteSelected();
+    } catch {}
+  };
+  node.appendChild(del);
+  document.body.appendChild(node);
+  changesContextMenu = node;
+  return node;
+}
+
+function hideChangesContextMenu() {
+  try {
+    changesContextMenu?.classList?.add?.("hidden");
+  } catch {}
+}
+
+document.addEventListener(
+  "mousedown",
+  (e) => {
+    if (e.button !== 0) return;
+    if (!e.target?.closest?.("#changesContextMenu")) hideChangesContextMenu();
+  },
+  true
+);
+
 function ensureMeasureTextNode() {
   if (measureTextNode) return measureTextNode;
   const node = document.createElement("div");
@@ -549,10 +773,10 @@ function scheduleAutoGrowText(tab, item, node, source = "render") {
 }
 
 const I18N = {
-  fr: { language: "🌐 Langue: FR", open: "📂 Ouvrir PDF", addText: "🔤 + Texte", addShape: "🔷 + Forme", addImage: "🖼️ + Image", del: "🗑️ Supprimer", width: "Largeur", height: "Hauteur", rotation: "Rotation", opacity: "Opacite (%)", txt: "Txt", bg: "Fond", pad: "Marges", font: "Police", size: "Taille", apply: "✅ Appliquer", fitW: "↔️ Fit largeur", fitP: "🗐 Fit page", noPdf: "Aucun PDF", ready: "Pret", choose: "Choisir la langue:\n1. Francais\n2. English\n3. Espanol\n4. Portugues" },
-  en: { language: "🌐 Language: EN", open: "📂 Open PDF", addText: "🔤 + Text", addShape: "🔷 + Shape", addImage: "🖼️ + Image", del: "🗑️ Delete", width: "Width", height: "Height", rotation: "Rotation", opacity: "Opacity (%)", txt: "Text", bg: "Background", pad: "Padding", font: "Font", size: "Size", apply: "✅ Apply", fitW: "↔️ Fit width", fitP: "🗐 Fit page", noPdf: "No PDF", ready: "Ready", choose: "Choose language:\n1. Francais\n2. English\n3. Espanol\n4. Portugues" },
-  es: { language: "🌐 Idioma: ES", open: "📂 Abrir PDF", addText: "🔤 + Texto", addShape: "🔷 + Forma", addImage: "🖼️ + Imagen", del: "🗑️ Borrar", width: "Ancho", height: "Alto", rotation: "Rotacion", opacity: "Opacidad (%)", txt: "Texto", bg: "Fondo", pad: "Margen", font: "Fuente", size: "Tamano", apply: "✅ Aplicar", fitW: "↔️ Ajustar ancho", fitP: "🗐 Ajustar pagina", noPdf: "Sin PDF", ready: "Listo", choose: "Elige idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues" },
-  pt: { language: "🌐 Idioma: PT", open: "📂 Abrir PDF", addText: "🔤 + Texto", addShape: "🔷 + Forma", addImage: "🖼️ + Imagem", del: "🗑️ Excluir", width: "Largura", height: "Altura", rotation: "Rotacao", opacity: "Opacidade (%)", txt: "Texto", bg: "Fundo", pad: "Margem", font: "Fonte", size: "Tamanho", apply: "✅ Aplicar", fitW: "↔️ Ajustar largura", fitP: "🗐 Ajustar pagina", noPdf: "Nenhum PDF", ready: "Pronto", choose: "Escolha o idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues" }
+  fr: { language: "🌐 Langue: FR", open: "📂 Ouvrir PDF", addText: "🔤 + Texte", addShape: "🔷 + Forme", addImage: "🖼️ + Image", del: "🗑️ Supprimer", width: "Largeur", height: "Hauteur", rotation: "Rotation", opacity: "Opacite (%)", txt: "Txt", bg: "Fond", pad: "Marges", font: "Police", size: "Taille", apply: "✅ Appliquer", fitW: "↔️ Fit largeur", fitP: "🗐 Fit page", noPdf: "Aucun PDF", ready: "Pret", choose: "Choisir la langue:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Appelez la barre de menu avec F10 (afficher / masquer)." },
+  en: { language: "🌐 Language: EN", open: "📂 Open PDF", addText: "🔤 + Text", addShape: "🔷 + Shape", addImage: "🖼️ + Image", del: "🗑️ Delete", width: "Width", height: "Height", rotation: "Rotation", opacity: "Opacity (%)", txt: "Text", bg: "Background", pad: "Padding", font: "Font", size: "Size", apply: "✅ Apply", fitW: "↔️ Fit width", fitP: "🗐 Fit page", noPdf: "No PDF", ready: "Ready", choose: "Choose language:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Press F10 to show or hide the menu toolbar." },
+  es: { language: "🌐 Idioma: ES", open: "📂 Abrir PDF", addText: "🔤 + Texto", addShape: "🔷 + Forma", addImage: "🖼️ + Imagen", del: "🗑️ Borrar", width: "Ancho", height: "Alto", rotation: "Rotacion", opacity: "Opacidad (%)", txt: "Texto", bg: "Fondo", pad: "Margen", font: "Fuente", size: "Tamano", apply: "✅ Aplicar", fitW: "↔️ Ajustar ancho", fitP: "🗐 Ajustar pagina", noPdf: "Sin PDF", ready: "Listo", choose: "Elige idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Pulse F10 para mostrar u ocultar la barra de menu." },
+  pt: { language: "🌐 Idioma: PT", open: "📂 Abrir PDF", addText: "🔤 + Texto", addShape: "🔷 + Forma", addImage: "🖼️ + Imagem", del: "🗑️ Excluir", width: "Largura", height: "Altura", rotation: "Rotacao", opacity: "Opacidade (%)", txt: "Texto", bg: "Fundo", pad: "Margem", font: "Fonte", size: "Tamanho", apply: "✅ Aplicar", fitW: "↔️ Ajustar largura", fitP: "🗐 Ajustar pagina", noPdf: "Nenhum PDF", ready: "Pronto", choose: "Escolha o idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Pressione F10 para mostrar ou ocultar a barra de menu." }
 };
 
 function t(key) {
@@ -585,6 +809,11 @@ function applyLanguage() {
   setLabelPrefix("propFontFamily", t("font"));
   setLabelPrefix("propFontSize", t("size"));
   if (!getActiveTab()) pageInfo.textContent = t("noPdf");
+  if (toolbarF10Hint) {
+    const hint = t("f10Toolbar");
+    toolbarF10Hint.textContent = hint;
+    toolbarF10Hint.title = hint;
+  }
 }
 
 function setLanguage(lang) {
@@ -1670,12 +1899,16 @@ function startDrag(event, id) {
   const startY = event.clientY;
   const originX = item.x;
   const originY = item.y;
+  const startScrollLeft = viewer?.scrollLeft || 0;
+  const startScrollTop = viewer?.scrollTop || 0;
+  let lastClientX = startX;
+  let lastClientY = startY;
   captureSnapshot(tab);
   let hasMoved = false;
 
-  const move = (ev) => {
-    const dx = ev.clientX - startX;
-    const dy = ev.clientY - startY;
+  const applyDragAt = (clientX, clientY) => {
+    const dx = clientX - startX + ((viewer?.scrollLeft || 0) - startScrollLeft);
+    const dy = clientY - startY + ((viewer?.scrollTop || 0) - startScrollTop);
     const dist2 = dx * dx + dy * dy;
     if (!hasMoved) {
       // seuil anti "clic = drag" (permet dblclick fiable)
@@ -1684,19 +1917,39 @@ function startDrag(event, id) {
       hasMoved = true;
       interactionMode = "drag";
       try {
-        ev.preventDefault();
+        // On ne doit empêcher le comportement par défaut qu'une fois le drag confirmé.
+        // (Sinon dblclick devient flaky sous Chromium/Electron.)
       } catch {}
     }
     const zone = getSafeZoneSize();
     const maxX = Math.max(0, zone.width - item.w);
     const maxY = Math.max(0, zone.height - item.h);
-    item.x = clamp(originX + (ev.clientX - startX), 0, maxX);
-    item.y = clamp(originY + (ev.clientY - startY), 0, maxY);
+    item.x = clamp(originX + dx, 0, maxX);
+    item.y = clamp(originY + dy, 0, maxY);
     renderAnnotations();
   };
+
+  const move = (ev) => {
+    lastClientX = ev.clientX;
+    lastClientY = ev.clientY;
+    if (hasMoved) {
+      try {
+        ev.preventDefault();
+      } catch {}
+    }
+    applyDragAt(ev.clientX, ev.clientY);
+  };
+
+  // Si l'utilisateur scroll pendant le drag, l'élément doit rester sous le curseur.
+  const onScroll = () => {
+    if (!hasMoved) return;
+    applyDragAt(lastClientX, lastClientY);
+  };
+
   const up = () => {
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", up);
+    viewer?.removeEventListener?.("scroll", onScroll);
     interactionMode = null;
     // Ne pas bloquer le click si on n'a pas réellement dragué.
     suppressClickUntil = Date.now() + (hasMoved ? 180 : 0);
@@ -1706,6 +1959,7 @@ function startDrag(event, id) {
   };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
+  viewer?.addEventListener?.("scroll", onScroll, { passive: true });
   activePointerCleanup = up;
 }
 
@@ -1824,7 +2078,7 @@ function addAnnotation(type, extra = {}) {
   if (!tab) return;
   captureSnapshot(tab);
   const annotations = currentPageAnnotations(tab);
-  const id = `${Date.now()}-${Math.random()}`;
+  const id = newAnnotationId();
   const annotation = {
     id,
     type,
@@ -1851,6 +2105,35 @@ function addAnnotation(type, extra = {}) {
   scheduleAutoSave();
 }
 
+function pasteClipboardIntoActivePage() {
+  const tab = getActiveTab();
+  if (!tab || !state.clipboard) return;
+  const data = deepClone(state.clipboard);
+  data.id = newAnnotationId();
+
+  // Page cible = page active (la position du curseur est supposée être sur cette page).
+  const targetPage = String(tab.currentPage || 1);
+  if (!tab.annotationsByPage[targetPage]) tab.annotationsByPage[targetPage] = [];
+
+  const zone = getSafeZoneSize();
+  const p = state.lastPointer && Number(state.lastPointer.page) === Number(tab.currentPage || 1) ? state.lastPointer : null;
+  const cx = p ? p.x : zone.width / 2;
+  const cy = p ? p.y : zone.height / 2;
+
+  // Positionner top-left proche du curseur, sans sortir de la page.
+  data.x = cx - (data.w || 20) / 2;
+  data.y = cy - (data.h || 20) / 2;
+  fitAnnotationToSafeZone(data, zone);
+
+  captureSnapshot(tab);
+  tab.annotationsByPage[targetPage].push(data);
+  state.selectedAnnotationId = data.id;
+  state.editingAnnotationId = null;
+  syncPropertyInputs();
+  renderAnnotations();
+  scheduleAutoSave();
+}
+
 function openShapePicker() {
   shapeModal.classList.remove("hidden");
 }
@@ -1872,11 +2155,10 @@ function addShapeByType(shapeType) {
 function deleteSelected() {
   const tab = getActiveTab();
   if (!tab || !state.selectedAnnotationId) return;
-  const annotations = currentPageAnnotations(tab);
-  const idx = annotations.findIndex((a) => a.id === state.selectedAnnotationId);
-  if (idx < 0) return;
+  const found = findAnnotationLocation(tab, state.selectedAnnotationId);
+  if (!found) return;
   captureSnapshot(tab);
-  annotations.splice(idx, 1);
+  found.arr.splice(found.idx, 1);
   state.selectedAnnotationId = null;
   syncPropertyInputs();
   renderAnnotations();
@@ -2054,17 +2336,32 @@ deleteSelectedBtn?.addEventListener?.("click", deleteSelected);
 undoBtn?.addEventListener?.("click", undo);
 redoBtn?.addEventListener?.("click", redo);
 applyPropsBtn?.addEventListener?.("click", applySelectedProperties);
+applyBgBtn?.addEventListener?.("click", () => {
+  try {
+    propBgColor.dataset.touched = "1";
+    propBgColorLabel?.classList?.remove?.("is-transparent");
+  } catch {}
+  applySelectedProperties();
+});
 propWidth?.addEventListener?.("input", applySelectedPropertiesLive);
 propHeight?.addEventListener?.("input", applySelectedPropertiesLive);
 propRotation?.addEventListener?.("input", applySelectedPropertiesLive);
 propOpacity?.addEventListener?.("input", applySelectedPropertiesLive);
 propTextColor?.addEventListener?.("input", applySelectedPropertiesLive);
-propBgColor?.addEventListener?.("input", applySelectedPropertiesLive);
-propBgColor?.addEventListener?.("input", () => {
-  propBgColor.dataset.touched = "1";
-  // Si l'utilisateur touche "Fond", ce n'est plus transparent.
-  propBgColorLabel?.classList?.remove?.("is-transparent");
-});
+
+function markBgTouchedAndApply() {
+  try {
+    propBgColor.dataset.touched = "1";
+    // Si l'utilisateur touche "Fond", ce n'est plus transparent.
+    propBgColorLabel?.classList?.remove?.("is-transparent");
+  } catch {}
+  // Important: toucher -> puis appliquer, sinon applySelectedProperties ignore le fond.
+  applySelectedPropertiesLive();
+}
+
+// Sous Electron, le picker peut déclencher "change" plutôt que "input".
+propBgColor?.addEventListener?.("input", markBgTouchedAndApply);
+propBgColor?.addEventListener?.("change", markBgTouchedAndApply);
 propPadding?.addEventListener?.("input", applySelectedPropertiesLive);
 propFontFamily?.addEventListener?.("change", applySelectedPropertiesLive);
 propFontSize?.addEventListener?.("input", applySelectedPropertiesLive);
@@ -2116,11 +2413,95 @@ shapeGrid?.addEventListener?.("click", (event) => {
   addShapeByType(btn.dataset.shape);
 });
 
-// E8: menu "Outils PDF"
+// Visibilité barre HTML : visible si fenêtre en vrai plein écran (F11), sinon masquée.
+// F10 inverse l'état (XOR) : permet d'afficher la barre hors plein écran ou de la masquer dedans.
+let electronWindowFullscreen = false;
+let htmlToolbarF10Flip = false;
+
+function htmlToolbarShouldBeVisible() {
+  return electronWindowFullscreen !== htmlToolbarF10Flip;
+}
+
+function updateAppToolbarDom(source = "unknown") {
+  if (!appToolbar) {
+    try {
+      window.maniPdfApi?.log?.("toolbar:dom-update:skip", { source, reason: "no-appToolbar" })?.catch?.(() => {});
+    } catch {}
+    return;
+  }
+  const visible = htmlToolbarShouldBeVisible();
+  appToolbar.classList.toggle("hidden", !visible);
+  const hasHidden = appToolbar.classList.contains("hidden");
+  try {
+    window.maniPdfApi
+      ?.log?.("toolbar:dom-update", {
+        source,
+        visible,
+        hasHiddenClass: hasHidden,
+        electronWindowFullscreen,
+        htmlToolbarF10Flip,
+        xor: electronWindowFullscreen !== htmlToolbarF10Flip
+      })
+      ?.catch?.(() => {});
+  } catch {}
+  if (!visible) {
+    try {
+      closeAllFlyoutMenus();
+    } catch {}
+  }
+}
+
+function toggleHtmlToolbarF10(source) {
+  htmlToolbarF10Flip = !htmlToolbarF10Flip;
+  try {
+    window.maniPdfApi
+      ?.log?.("toolbar:f10-toggle", {
+        source,
+        htmlToolbarF10Flip,
+        electronWindowFullscreen,
+        willBeVisible: htmlToolbarShouldBeVisible()
+      })
+      ?.catch?.(() => {});
+  } catch {}
+  log("toolbar:f10", { source, flip: htmlToolbarF10Flip, fullscreen: electronWindowFullscreen });
+  updateAppToolbarDom(`f10:${source}`);
+}
+
+async function syncFullscreenFromMain() {
+  try {
+    const r = await window.maniPdfApi?.getWindowFullscreen?.();
+    try {
+      window.maniPdfApi?.log?.("toolbar:sync-fs:ipc-raw", { r: r || null })?.catch?.(() => {});
+    } catch {}
+    electronWindowFullscreen = Boolean(r?.full);
+  } catch (e) {
+    try {
+      window.maniPdfApi?.log?.("toolbar:sync-fs:error", { message: String(e?.message || e) })?.catch?.(() => {});
+    } catch {}
+  }
+  updateAppToolbarDom("syncFullscreenFromMain");
+}
+
+// E8: menus déroulants (Outils PDF + barre custom Fichier / Options)
+function closeToolbarFileMenu() {
+  if (!toolbarFileMenu || !toolbarFileBtn) return;
+  toolbarFileMenu.classList.add("hidden");
+  toolbarFileBtn.setAttribute("aria-expanded", "false");
+}
+function closeToolbarOptionsMenu() {
+  if (!toolbarOptionsMenu || !toolbarOptionsBtn) return;
+  toolbarOptionsMenu.classList.add("hidden");
+  toolbarOptionsBtn.setAttribute("aria-expanded", "false");
+}
 function closePdfToolsMenu() {
   if (!pdfToolsMenu || !pdfToolsBtn) return;
   pdfToolsMenu.classList.add("hidden");
   pdfToolsBtn.setAttribute("aria-expanded", "false");
+}
+function closeAllFlyoutMenus() {
+  closePdfToolsMenu();
+  closeToolbarFileMenu();
+  closeToolbarOptionsMenu();
 }
 function togglePdfToolsMenu() {
   if (!pdfToolsMenu || !pdfToolsBtn) return;
@@ -2129,41 +2510,139 @@ function togglePdfToolsMenu() {
     closePdfToolsMenu();
     return;
   }
+  closeToolbarFileMenu();
+  closeToolbarOptionsMenu();
   pdfToolsMenu.classList.remove("hidden");
   pdfToolsBtn.setAttribute("aria-expanded", "true");
-  // Focus premier item pour clavier
   requestAnimationFrame(() => {
     try {
       pdfToolsMenu.querySelector("button[role='menuitem']")?.focus?.();
     } catch {}
   });
 }
+function toggleToolbarFileMenu() {
+  if (!toolbarFileMenu || !toolbarFileBtn) return;
+  const isOpen = !toolbarFileMenu.classList.contains("hidden");
+  if (isOpen) {
+    closeToolbarFileMenu();
+    return;
+  }
+  closePdfToolsMenu();
+  closeToolbarOptionsMenu();
+  toolbarFileMenu.classList.remove("hidden");
+  toolbarFileBtn.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    try {
+      toolbarFileMenu.querySelector("button[role='menuitem']")?.focus?.();
+    } catch {}
+  });
+}
+function toggleToolbarOptionsMenu() {
+  if (!toolbarOptionsMenu || !toolbarOptionsBtn) return;
+  const isOpen = !toolbarOptionsMenu.classList.contains("hidden");
+  if (isOpen) {
+    closeToolbarOptionsMenu();
+    return;
+  }
+  closePdfToolsMenu();
+  closeToolbarFileMenu();
+  toolbarOptionsMenu.classList.remove("hidden");
+  toolbarOptionsBtn.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    try {
+      toolbarOptionsMenu.querySelector("button[role='menuitem']")?.focus?.();
+    } catch {}
+  });
+}
+async function quitApplication() {
+  try {
+    await window.maniPdfApi?.quitApp?.();
+  } catch {
+    try {
+      window.close();
+    } catch {}
+  }
+}
 pdfToolsBtn?.addEventListener?.("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
   togglePdfToolsMenu();
 });
-document.addEventListener("click", (e) => {
-  if (!pdfToolsMenu || pdfToolsMenu.classList.contains("hidden")) return;
-  const inMenu = e.target?.closest?.("#pdfToolsMenu");
-  const inBtn = e.target?.closest?.("#pdfToolsBtn");
-  if (inMenu || inBtn) return;
-  closePdfToolsMenu();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if (!pdfToolsMenu || pdfToolsMenu.classList.contains("hidden")) return;
+toolbarFileBtn?.addEventListener?.("click", (e) => {
   e.preventDefault();
-  closePdfToolsMenu();
+  e.stopPropagation();
+  toggleToolbarFileMenu();
+});
+toolbarOptionsBtn?.addEventListener?.("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  toggleToolbarOptionsMenu();
+});
+toolbarOpenPdfBtn?.addEventListener?.("click", (e) => {
+  e.preventDefault();
+  closeAllFlyoutMenus();
+  promptOpenPdf();
+});
+toolbarSaveSessionBtn?.addEventListener?.("click", (e) => {
+  e.preventDefault();
+  closeAllFlyoutMenus();
+  saveSession().catch(() => {});
+});
+toolbarQuitBtn?.addEventListener?.("click", (e) => {
+  e.preventDefault();
+  closeAllFlyoutMenus();
+  quitApplication();
+});
+toolbarCloseBtn?.addEventListener?.("click", (e) => {
+  e.preventDefault();
+  closeAllFlyoutMenus();
+  quitApplication();
+});
+toolbarOptionsMenu?.addEventListener?.("click", (e) => {
+  const btn = e.target?.closest?.(".toolbar-lang-btn[data-lang]");
+  if (!btn) return;
   try {
-    pdfToolsBtn?.focus?.();
+    setLanguage(btn.dataset.lang);
   } catch {}
+  closeAllFlyoutMenus();
+});
+document.addEventListener("click", (e) => {
+  const inside =
+    e.target?.closest?.("#pdfToolsMenu") ||
+    e.target?.closest?.("#pdfToolsBtn") ||
+    e.target?.closest?.("#toolbarFileMenu") ||
+    e.target?.closest?.("#toolbarFileBtn") ||
+    e.target?.closest?.("#toolbarOptionsMenu") ||
+    e.target?.closest?.("#toolbarOptionsBtn");
+  if (inside) return;
+  closeAllFlyoutMenus();
 });
 pdfToolsMenu?.addEventListener?.("click", (e) => {
-  // Fermer le menu après activation d'une action.
   const item = e.target?.closest?.("button[role='menuitem']");
   if (!item) return;
   closePdfToolsMenu();
+});
+
+window.maniPdfApi?.onFullscreenChanged?.((full) => {
+  electronWindowFullscreen = Boolean(full);
+  log("window:fullscreen-changed", { full: electronWindowFullscreen });
+  try {
+    window.maniPdfApi
+      ?.log?.("toolbar:ipc-fullscreen-changed", {
+        full: electronWindowFullscreen,
+        htmlToolbarF10Flip,
+        willBeVisible: htmlToolbarShouldBeVisible()
+      })
+      ?.catch?.(() => {});
+  } catch {}
+  updateAppToolbarDom("ipc:fullscreen-changed");
+});
+
+window.maniPdfApi?.onToolbarF10Toggle?.(() => {
+  try {
+    window.maniPdfApi?.log?.("toolbar:f10:ipc-received", { from: "main-before-input" })?.catch?.(() => {});
+  } catch {}
+  toggleHtmlToolbarF10("main-before-input");
 });
 
 window.maniPdfApi?.onOpenFromMenu?.(async (filePath) => {
@@ -2222,7 +2701,7 @@ document.addEventListener("mousedown", (event) => {
   if (tab) {
     try {
       const id = state.editingAnnotationId;
-      const item = currentPageAnnotations(tab).find((a) => a.id === id);
+      const item = findAnnotationLocation(tab, id)?.item || null;
       const ta = editingNode.querySelector?.("textarea.text-editor");
       if (item && item.type === "text" && ta) {
         captureSnapshot(tab);
@@ -2297,11 +2776,35 @@ document.addEventListener("mouseout", (event) => {
   if (!event.target.closest("[data-tooltip]")) return;
   hideToolTip();
 });
-document.addEventListener("keydown", (event) => {
+document.addEventListener(
+  "keydown",
+  (event) => {
+  if (event.key === "F10") {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      window.maniPdfApi?.log?.("toolbar:f10-renderer-keydown", { repeat: event.repeat })?.catch?.(() => {});
+    } catch {}
+    toggleHtmlToolbarF10("renderer-keydown");
+    return;
+  }
+
   if (event.key === "Escape" && !shapeModal.classList.contains("hidden")) {
     event.preventDefault();
     closeShapePicker();
     return;
+  }
+
+  if (event.key === "Escape") {
+    const anyFlyout =
+      (pdfToolsMenu && !pdfToolsMenu.classList.contains("hidden")) ||
+      (toolbarFileMenu && !toolbarFileMenu.classList.contains("hidden")) ||
+      (toolbarOptionsMenu && !toolbarOptionsMenu.classList.contains("hidden"));
+    if (anyFlyout) {
+      event.preventDefault();
+      closeAllFlyoutMenus();
+      return;
+    }
   }
 
   // E6-S2: en mode édition texte, ESC doit terminer l'édition (sans perdre le texte).
@@ -2335,6 +2838,49 @@ document.addEventListener("keydown", (event) => {
   if (isTypingContext(event.target) || state.editingAnnotationId) return;
 
   const key = event.key.toLowerCase();
+
+  // Clipboard (Ctrl+C / Ctrl+X / Ctrl+V) pour annotations
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "c") {
+    const tab = getActiveTab();
+    const item = getSelectedAnnotationFromActivePage(tab);
+    if (!tab || !item) return;
+    event.preventDefault();
+    // On copie toutes les props au moment du Ctrl+C
+    const copy = cloneForClipboard(item);
+    if (!copy) return;
+    state.clipboard = copy;
+    setStatus("Élément copié");
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "x") {
+    const tab = getActiveTab();
+    const annotations = tab ? currentPageAnnotations(tab) : null;
+    const item = getSelectedAnnotationFromActivePage(tab);
+    if (!tab || !annotations || !item) return;
+    event.preventDefault();
+    const cut = cloneForClipboard(item);
+    if (!cut) return;
+    state.clipboard = cut;
+    const idx = annotations.findIndex((a) => a.id === item.id);
+    if (idx >= 0) {
+      captureSnapshot(tab);
+      annotations.splice(idx, 1);
+      state.selectedAnnotationId = null;
+      state.editingAnnotationId = null;
+      syncPropertyInputs();
+      renderAnnotations();
+      scheduleAutoSave();
+    }
+    setStatus("Élément coupé");
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "v") {
+    if (!state.clipboard) return;
+    event.preventDefault();
+    pasteClipboardIntoActivePage();
+    setStatus("Élément collé");
+    return;
+  }
 
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
@@ -2376,7 +2922,9 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     pageShift(1);
   }
-});
+  },
+  true
+);
 
 window.addEventListener("resize", () => {
   // En plein écran / redimensionnement, recalculer le rendu PDF pour éviter
@@ -2405,12 +2953,6 @@ window.addEventListener(
 );
 
 function insertTextAtCaret(text) {
-  try {
-    // execCommand est deprecated mais reste le fallback le plus compatible
-    // pour injecter du texte dans une zone contentEditable.
-    document.execCommand("insertText", false, text);
-    return true;
-  } catch {}
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return false;
   const range = selection.getRangeAt(0);
@@ -2432,15 +2974,6 @@ function trySetCaretFromPoint(container, clientX, clientY) {
       const range = document.createRange();
       range.setStart(pos.offsetNode, pos.offset);
       range.collapse(true);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      return true;
-    }
-    // Fallback Chromium (legacy)
-    if (document.caretRangeFromPoint) {
-      const range = document.caretRangeFromPoint(clientX, clientY);
-      if (!range) return false;
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
@@ -2583,6 +3116,7 @@ function setupDragAndDrop() {
 
 log("app:init");
 applyLanguage();
+syncFullscreenFromMain().catch(() => {});
 updateZoomUI();
 updateWelcomeVisibility();
 if (!window.maniPdfApi?.isE2E?.()) {
@@ -2616,6 +3150,69 @@ try {
       updateWelcomeVisibility();
       syncPropertyInputs();
       setStatus("Pret");
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  window.__maniE2E.getUiState = () => {
+    try {
+      const tab = getActiveTab();
+      const page = String(tab?.currentPage || 1);
+      const annos = tab?.annotationsByPage?.[page] || [];
+      return {
+        activeTabId: state.activeTabId,
+        currentPage: tab?.currentPage || 1,
+        selectedAnnotationId: state.selectedAnnotationId,
+        editingAnnotationId: state.editingAnnotationId,
+        clipboard: state.clipboard,
+        annotationsOnCurrentPageCount: annos.length
+      };
+    } catch {
+      return { error: true };
+    }
+  };
+  window.__maniE2E.copySelected = () => {
+    try {
+      const tab = getActiveTab();
+      const item = getSelectedAnnotationFromActivePage(tab);
+      if (!tab || !item) return false;
+      const copy = cloneForClipboard(item);
+      if (!copy) return false;
+      state.clipboard = copy;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  window.__maniE2E.cutSelected = () => {
+    try {
+      const tab = getActiveTab();
+      const annotations = tab ? currentPageAnnotations(tab) : null;
+      const item = getSelectedAnnotationFromActivePage(tab);
+      if (!tab || !annotations || !item) return false;
+      const cut = cloneForClipboard(item);
+      if (!cut) return false;
+      state.clipboard = cut;
+      const idx = annotations.findIndex((a) => a.id === item.id);
+      if (idx >= 0) {
+        captureSnapshot(tab);
+        annotations.splice(idx, 1);
+        state.selectedAnnotationId = null;
+        state.editingAnnotationId = null;
+        syncPropertyInputs();
+        renderAnnotations();
+        scheduleAutoSave();
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  window.__maniE2E.paste = () => {
+    try {
+      if (!state.clipboard) return false;
+      pasteClipboardIntoActivePage();
       return true;
     } catch {
       return false;
