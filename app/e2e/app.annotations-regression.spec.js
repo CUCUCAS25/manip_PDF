@@ -7,6 +7,7 @@ const { test, expect, _electron: electron } = require("@playwright/test");
 const electronPath = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { waitForPdfPagesRendered } = require("./helpers");
 
 function getRepoPdfFixture() {
   const p = path.resolve(process.cwd(), "..", "tests", "formulaire_test.pdf");
@@ -178,6 +179,7 @@ test("texte: menu contextuel contient rotation et opacite", async () => {
 test("Options (barre F10): section Outils PDF + Fusion avec un seul PDF (message attendu)", async () => {
   const { app, page } = await launchApp();
   await openPdfFromMenu(app, page);
+  await waitForPdfPagesRendered(page);
   await showHtmlToolbar(app, page);
 
   await page.locator("#toolbarOptionsBtn").click();

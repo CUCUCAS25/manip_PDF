@@ -2100,6 +2100,12 @@ async function renderPdfDocument(pdfPath) {
   setActivePage(tab.currentPage || 1);
   applyZoomAnchorIfAny();
   scheduleSidebarUpdate();
+  if (token !== activePdfRenderToken) return;
+  try {
+    setStatus("PDF chargé — Cliquez sur 🔤 + Texte pour annoter");
+  } catch {
+    /* ignore */
+  }
 }
 
 async function addPdfTab(filePath, fileName) {
@@ -4373,6 +4379,7 @@ try {
       return {
         activeTabId: state.activeTabId,
         currentPage: tab?.currentPage || 1,
+        pageCount: tab?.pageCount ?? null,
         selectedAnnotationId: state.selectedAnnotationId,
         editingAnnotationId: state.editingAnnotationId,
         clipboard: state.clipboard,

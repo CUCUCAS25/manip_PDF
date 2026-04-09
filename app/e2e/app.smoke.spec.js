@@ -2,6 +2,7 @@ const { test, expect, _electron: electron } = require("@playwright/test");
 const electronPath = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { waitForPdfPagesRendered } = require("./helpers");
 
 function getRepoPdfFixture() {
   // PDF fourni par le repo (USER).
@@ -111,6 +112,7 @@ test("app boots and shows title", async () => {
 test("load PDF, remove tab, add and edit text", async () => {
   const { app, page } = await launchApp();
   await openPdfFromUi(app, page);
+  await waitForPdfPagesRendered(page);
 
   // Sidebars: miniatures + ajouts visibles (non régression UI)
   await expect(page.locator("#thumbsBar")).toBeVisible();
@@ -127,6 +129,7 @@ test("load PDF, remove tab, add and edit text", async () => {
 
   // Recharge pour tester ajout + édition
   await openPdfFromUi(app, page);
+  await waitForPdfPagesRendered(page);
 
   const textNode = await addTextAnnotation(page);
 
