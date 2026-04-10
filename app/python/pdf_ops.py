@@ -248,7 +248,27 @@ def apply_annotations(input_path: str, output_path: str, canvases_px_by_page: di
         "octagon": [(30, 0), (70, 0), (100, 30), (100, 70), (70, 100), (30, 100), (0, 70), (0, 30)],
         "star": [(50, 0), (61, 35), (98, 35), (68, 57), (79, 91), (50, 70), (21, 91), (32, 57), (2, 35), (39, 35)],
         "arrow": [(0, 35), (70, 35), (70, 15), (100, 50), (70, 85), (70, 65), (0, 65)],
-        "heart": [(50, 92), (90, 58), (90, 30), (75, 15), (50, 28), (25, 15), (10, 30), (10, 58)],
+        # Cœur : contour polygonal stable et symétrique — doit rester aligné avec renderer.js.
+        "heart": [
+            (50, 92),
+            (62, 82),
+            (74, 70),
+            (84, 56),
+            (90, 42),
+            (88, 30),
+            (80, 20),
+            (68, 16),
+            (58, 20),
+            (50, 32),
+            (42, 20),
+            (32, 16),
+            (20, 20),
+            (12, 30),
+            (10, 42),
+            (16, 56),
+            (26, 70),
+            (38, 82),
+        ],
         "cross": [(35, 0), (65, 0), (65, 35), (100, 35), (100, 65), (65, 65), (65, 100), (35, 100), (35, 65), (0, 65), (0, 35), (35, 35)],
         "parallelogram": [(18, 0), (100, 0), (82, 100), (0, 100)],
         "trapezoid": [(18, 0), (82, 0), (100, 100), (0, 100)],
@@ -311,13 +331,17 @@ def apply_annotations(input_path: str, output_path: str, canvases_px_by_page: di
                 except Exception:
                     pass
 
-                # rotation autour du centre du bloc
-                cx = x + w / 2.0
-                cy = y + h / 2.0
+                # Rotation : WYSIWYG avec le renderer.
+                # Renderer (DOM) : repère y vers le bas + `transform-origin: 0 0` sur `.annotation`
+                # => rotation positive = sens horaire autour du coin haut-gauche.
+                # PDF (reportlab) : repère y vers le haut + rotation positive = sens anti-horaire.
+                # On pivote donc autour du coin haut-gauche (x, y + h) et on inverse le signe.
                 if rot:
-                    c.translate(cx, cy)
-                    c.rotate(rot)
-                    c.translate(-cx, -cy)
+                    px = x
+                    py = y + h
+                    c.translate(px, py)
+                    c.rotate(-rot)
+                    c.translate(-px, -py)
 
                 if a_kind == "text":
                     padding = _num(a.get("padding"), 6.0) * sx

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -186,14 +186,21 @@ function broadcastFullscreenState() {
 
 function createWindow() {
   const startMaximized = !process.env.MANI_PDF_E2E;
+  try {
+    app.setName("Editify");
+  } catch {
+    /* ignore */
+  }
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false,
+    icon: path.join(app.getAppPath(), "..", "public", "miniature.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      spellcheck: true
     }
   });
 
@@ -229,13 +236,22 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 }
 
+function normalizeSpellcheckLanguage(lang) {
+  const l = String(lang || "").toLowerCase();
+  if (l === "fr" || l === "fr-fr") return "fr-FR";
+  if (l === "en" || l === "en-us" || l === "en-gb") return "en-US";
+  if (l === "es" || l === "es-es") return "es-ES";
+  if (l === "pt" || l === "pt-pt" || l === "pt-br") return "pt-PT";
+  return null;
+}
+
 function createMenu() {
   const template = [
     {
-      label: "File",
+      label: "Fichier",
       submenu: [
         {
-          label: "Open PDF",
+          label: "Ouvrir PDF",
           click: async () => {
             if (!mainWindow) return;
             const result = await dialog.showOpenDialog(mainWindow, {
@@ -282,11 +298,27 @@ function createMenu() {
           label: "Outils PDF",
           submenu: [
             { label: "Fusion", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "merge") },
-            { label: "Split", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "split") },
+            { label: "Diviser", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "split") },
             { label: "Compression", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "compress") },
-            { label: "Protect", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "protect") },
-            { label: "Unprotect", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "unprotect") }
+            { label: "Protéger", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "protect") },
+            { label: "Déprotéger", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "unprotect") }
           ]
+        }
+      ]
+    }
+    ,
+    {
+      label: "?",
+      submenu: [
+        {
+          label: "À propos",
+          click: () => {
+            try {
+              mainWindow?.webContents?.send?.("app:about");
+            } catch {
+              /* ignore */
+            }
+          }
         }
       ]
     }
@@ -669,6 +701,37 @@ ipcMain.handle("window:is-fullscreen", () => {
 ipcMain.handle("app:quit", () => {
   app.quit();
   return { ok: true };
+});
+
+ipcMain.handle("shell:openExternal", async (_, url) => {
+  try {
+    const u = String(url || "").trim();
+    if (!u) return { ok: false, error: "URL vide." };
+    // Whitelist minimale: éviter file:// et protocoles exotiques.
+    if (!/^https?:\/\//i.test(u)) return { ok: false, error: "URL non supportée." };
+    await shell.openExternal(u);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle("spellcheck:set-languages", async (_, input) => {
+  const raw = Array.isArray(input) ? input : [input];
+  const langs = raw.map(normalizeSpellcheckLanguage).filter(Boolean);
+  // Défense: on n'applique rien si invalide.
+  if (!langs.length) return { ok: false, error: "Langue de correcteur invalide." };
+  try {
+    const wc = mainWindow?.webContents;
+    const ses = wc?.session;
+    if (!ses?.setSpellCheckerLanguages) {
+      return { ok: false, error: "Spellchecker non supporté." };
+    }
+    ses.setSpellCheckerLanguages(langs);
+    return { ok: true, languages: langs };
+  } catch (e) {
+    return { ok: false, error: "Impossible d'appliquer la langue du correcteur." };
+  }
 });
 
 app.whenReady().then(() => {

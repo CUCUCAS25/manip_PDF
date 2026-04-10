@@ -1,6 +1,6 @@
 {
-  "name": "mani-pdf-local",
-  "version": "0.1.0",
+  "name": "editify",
+  "version": "1.0.0",
   "private": true,
   "description": "Local-first PDF desktop app foundation",
   "main": "src/main/main.js",
@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "com.manipdf.local",
-    "productName": "Mani PDF Local",
+    "productName": "Editify",
     "files": [
       "src/**/*",
       "python/**/*",

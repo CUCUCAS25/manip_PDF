@@ -1,5 +1,5 @@
 /**
- * Renderer principal — Mani PDF Local (Electron, pas Node).
+ * Renderer principal — Editify (Electron, pas Node).
  *
  * Architecture:
  * - Un fichier par rôle historique: état UI (`state`), rendu PDF (pdf.js via bridge), calque d'annotations HTML,
@@ -23,12 +23,10 @@ const propRotation = document.getElementById("propRotation");
 const propOpacity = document.getElementById("propOpacity");
 const propTextColor = document.getElementById("propTextColor");
 const propBgColor = document.getElementById("propBgColor");
+const validateTextColorBtn = document.getElementById("validateTextColorBtn");
 const propPadding = document.getElementById("propPadding");
 const propFontFamily = document.getElementById("propFontFamily");
 const propFontSize = document.getElementById("propFontSize");
-const propHalo = document.getElementById("propHalo");
-const presetPenBtn = document.getElementById("presetPenBtn");
-const presetHighlighterBtn = document.getElementById("presetHighlighterBtn");
 const applyPropsBtn = document.getElementById("applyPropsBtn");
 const applyBgBtn = document.getElementById("applyBgBtn");
 const mergeBtn = document.getElementById("mergeBtn");
@@ -38,6 +36,16 @@ const splitWorkspaceCloseBtn = document.getElementById("splitWorkspaceCloseBtn")
 const splitWorkspaceGroups = document.getElementById("splitWorkspaceGroups");
 const splitWorkspaceAddGroupBtn = document.getElementById("splitWorkspaceAddGroupBtn");
 const splitWorkspaceValidateBtn = document.getElementById("splitWorkspaceValidateBtn");
+const toolbarAboutBtn = document.getElementById("toolbarAboutBtn");
+const aboutPopover = document.getElementById("aboutPopover");
+const aboutCloseBtn = document.getElementById("aboutCloseBtn");
+const aboutTitleEl = document.getElementById("aboutTitle");
+const aboutCreditsEl = document.getElementById("aboutCredits");
+const aboutVersion = document.getElementById("aboutVersion");
+const blankCanvasCtxMenu = document.getElementById("blankCanvasCtxMenu");
+const blankAddTextBtn = document.getElementById("blankAddTextBtn");
+const blankAddShapeBtn = document.getElementById("blankAddShapeBtn");
+const blankAddImageBtn = document.getElementById("blankAddImageBtn");
 const compressBtn = document.getElementById("compressBtn");
 const protectBtn = document.getElementById("protectBtn");
 const unprotectBtn = document.getElementById("unprotectBtn");
@@ -89,9 +97,16 @@ const toolbarFileBtn = document.getElementById("toolbarFileBtn");
 const toolbarFileMenu = document.getElementById("toolbarFileMenu");
 const toolbarOptionsBtn = document.getElementById("toolbarOptionsBtn");
 const toolbarOptionsMenu = document.getElementById("toolbarOptionsMenu");
+const toolbarAboutMenuItem = document.getElementById("toolbarAboutMenuItem");
 const toolbarOpenPdfBtn = document.getElementById("toolbarOpenPdfBtn");
 const toolbarSaveAsBtn = document.getElementById("toolbarSaveAsBtn");
 const toolbarQuitBtn = document.getElementById("toolbarQuitBtn");
+const menuLangLabel = document.getElementById("menuLangLabel");
+const menuToolsLabel = document.getElementById("menuToolsLabel");
+const menuInfoLabel = document.getElementById("menuInfoLabel");
+const thumbsTitle = document.getElementById("thumbsTitle");
+const changesTitle = document.getElementById("changesTitle");
+const aboutRgpd = document.getElementById("aboutRgpd");
 const toolbarCloseBtn = document.getElementById("toolbarCloseBtn");
 const appToolbar = document.getElementById("appToolbar");
 const toolbarF10Hint = document.getElementById("toolbarF10Hint");
@@ -103,6 +118,9 @@ const propShapeStrokeOpacity = document.getElementById("propShapeStrokeOpacity")
 const propShapeStrokeWidth = document.getElementById("propShapeStrokeWidth");
 const propShapeBackdrop = document.getElementById("propShapeBackdrop");
 const propShapeBackdropOpacity = document.getElementById("propShapeBackdropOpacity");
+const validateShapeFillBtn = document.getElementById("validateShapeFillBtn");
+const validateShapeStrokeBtn = document.getElementById("validateShapeStrokeBtn");
+const validateShapeBackdropBtn = document.getElementById("validateShapeBackdropBtn");
 
 const state = {
   tabs: [],
@@ -118,6 +136,16 @@ const state = {
   clipboard: null,
   lastPointer: null // { page, x, y }
 };
+
+function loadPreferredLanguage() {
+  try {
+    const raw = localStorage.getItem("editify:lang");
+    const next = String(raw || "").toLowerCase();
+    if (I18N[next]) state.language = next;
+  } catch {
+    /* ignore */
+  }
+}
 let autosaveDebounce = null;
 let interactionMode = null; // "drag" | "resize" | null
 let suppressClickUntil = 0;
@@ -211,7 +239,7 @@ function renderChanges() {
   if (list.length === 0) {
     const empty = document.createElement("div");
     empty.className = "muted";
-    empty.textContent = "Aucun ajout sur ce document.";
+    empty.textContent = t("noAddsDoc");
     changesList.appendChild(empty);
     return;
   }
@@ -349,11 +377,11 @@ function renderThumbnails() {
     meta.className = "thumb-meta";
     const title = document.createElement("div");
     title.className = "thumb-title";
-    title.textContent = `Page ${pageNumber}`;
+    title.textContent = `${t("pageWord")} ${pageNumber}`;
     const annosCount = (tab.annotationsByPage?.[String(pageNumber)] || []).length;
     const sub = document.createElement("div");
     sub.className = "thumb-sub";
-    sub.textContent = annosCount ? `${annosCount} ajout(s)` : "Aucun ajout";
+    sub.textContent = annosCount ? `${annosCount} ajout(s)` : t("noAdds");
     meta.appendChild(title);
     meta.appendChild(sub);
 
@@ -544,6 +572,37 @@ document.addEventListener(
   true
 );
 
+// Capture "position curseur" même sans clic, tant que la souris survole le viewer.
+// Objectif: insertion des nouveaux éléments au plus proche du curseur (WYSIWYG).
+let lastPointerMoveAt = 0;
+document.addEventListener(
+  "mousemove",
+  (e) => {
+    try {
+      if (interactionMode) return;
+      if (!e.target?.closest?.(".viewer")) return;
+      const now = Date.now();
+      if (now - lastPointerMoveAt < 40) return; // throttle ~25Hz
+      lastPointerMoveAt = now;
+      capturePointerInPage(e);
+    } catch {}
+  },
+  true
+);
+
+// Clic droit sur zone vierge du canvas => menu "Ajouts rapides".
+document.addEventListener(
+  "contextmenu",
+  (e) => {
+    try {
+      // Ne pas interférer avec les menus contextuels existants.
+      if (e.target?.closest?.("#textAnnotationCtxMenu,#shapeAnnotationCtxMenu,#imageAnnotationCtxMenu,#changesContextMenu")) return;
+      showBlankCanvasCtxMenu(e);
+    } catch {}
+  },
+  true
+);
+
 // ---------------------------
 // Context menu (sidebar "Ajouts")
 // ---------------------------
@@ -576,6 +635,111 @@ function hideChangesContextMenu() {
   } catch {}
 }
 
+// ---------------------------
+// Context menu (canvas vierge) : ajouts rapides
+// ---------------------------
+function hideBlankCanvasCtxMenu() {
+  try {
+    blankCanvasCtxMenu?.classList?.add?.("hidden");
+  } catch {}
+}
+
+function showBlankCanvasCtxMenu(event) {
+  if (!blankCanvasCtxMenu) return;
+  const tab = getActiveTab();
+  if (!tab) return;
+  // Ne pas ouvrir si clic droit sur une annotation (menus dédiés).
+  if (event?.target?.closest?.(".annotation")) return;
+  if (!event?.target?.closest?.(".viewer")) return;
+  try {
+    event.preventDefault();
+    event.stopPropagation();
+  } catch {}
+  // Met à jour la position curseur pour insérer au bon endroit.
+  capturePointerInPage(event);
+  closeAllFlyoutMenus();
+  hideChangesContextMenu();
+  hideTextAnnotationCtxMenu();
+  hideShapeAnnotationCtxMenu();
+  hideImageAnnotationCtxMenu();
+
+  // Positionner le menu à l'écran (clamp pour éviter overflow).
+  try {
+    const menuW = 240;
+    const menuH = 160;
+    const margin = 10;
+    const x = clamp((event.clientX ?? 0) + 2, margin, window.innerWidth - menuW - margin);
+    const y = clamp((event.clientY ?? 0) + 2, margin, window.innerHeight - menuH - margin);
+    blankCanvasCtxMenu.style.left = `${x}px`;
+    blankCanvasCtxMenu.style.top = `${y}px`;
+  } catch {}
+  blankCanvasCtxMenu.classList.remove("hidden");
+}
+
+// ---------------------------
+// À propos (popover)
+// ---------------------------
+function hideAboutPopover() {
+  try {
+    aboutPopover?.classList?.add?.("hidden");
+  } catch {}
+}
+
+function wireAboutExternalLinksOnce() {
+  if (!aboutPopover) return;
+  if (aboutPopover.dataset.wiredLinks === "1") return;
+  aboutPopover.dataset.wiredLinks = "1";
+  aboutPopover.addEventListener("click", async (e) => {
+    const a = e.target?.closest?.("a[href]");
+    if (!a) return;
+    const href = a.getAttribute("href") || "";
+    if (!href) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const r = await window.maniPdfApi?.openExternal?.(href);
+      if (!r?.ok) {
+        setStatus("Impossible d'ouvrir le lien automatiquement. Copiez/collez l'URL.");
+      }
+    } catch {
+      setStatus("Impossible d'ouvrir le lien automatiquement. Copiez/collez l'URL.");
+    }
+  });
+}
+
+function showAboutPopover() {
+  if (!aboutPopover || !toolbarAboutBtn) return;
+  try {
+    // Version affichée (statique côté renderer).
+    if (aboutVersion) aboutVersion.textContent = "v1.0.0";
+  } catch {}
+  closeAllFlyoutMenus();
+  const r = toolbarAboutBtn.getBoundingClientRect();
+  const margin = 10;
+  const x = clamp(Math.floor(r.left), margin, window.innerWidth - 520 - margin);
+  const y = clamp(Math.floor(r.bottom + 8), margin, window.innerHeight - 220 - margin);
+  aboutPopover.style.left = `${x}px`;
+  aboutPopover.style.top = `${y}px`;
+  aboutPopover.classList.remove("hidden");
+  wireAboutExternalLinksOnce();
+}
+
+function showAboutPopoverNearOptions() {
+  if (!aboutPopover || !toolbarOptionsBtn) return;
+  try {
+    if (aboutVersion) aboutVersion.textContent = "v1.0.0";
+  } catch {}
+  closeAllFlyoutMenus();
+  const r = toolbarOptionsBtn.getBoundingClientRect();
+  const margin = 10;
+  const x = clamp(Math.floor(r.left), margin, window.innerWidth - 520 - margin);
+  const y = clamp(Math.floor(r.bottom + 8), margin, window.innerHeight - 220 - margin);
+  aboutPopover.style.left = `${x}px`;
+  aboutPopover.style.top = `${y}px`;
+  aboutPopover.classList.remove("hidden");
+  wireAboutExternalLinksOnce();
+}
+
 document.addEventListener(
   "mousedown",
   (e) => {
@@ -584,6 +748,8 @@ document.addEventListener(
     if (!e.target?.closest?.("#textAnnotationCtxMenu")) hideTextAnnotationCtxMenu();
     if (!e.target?.closest?.("#shapeAnnotationCtxMenu")) hideShapeAnnotationCtxMenu();
     if (!e.target?.closest?.("#imageAnnotationCtxMenu")) hideImageAnnotationCtxMenu();
+    if (!e.target?.closest?.("#blankCanvasCtxMenu")) hideBlankCanvasCtxMenu();
+    if (!e.target?.closest?.("#aboutPopover") && e.target !== toolbarAboutBtn) hideAboutPopover();
   },
   true
 );
@@ -721,8 +887,9 @@ function wireTextAnnotationCtxMenu() {
     dst.innerHTML = propFontFamily.innerHTML;
   }
   const size = document.getElementById("ctxTextSize");
-  const col = document.getElementById("ctxTextColor");
   const bg = document.getElementById("ctxTextBg");
+  const validateColBtn = document.getElementById("ctxValidateTextColorBtn");
+  const validateBgBtn = document.getElementById("ctxValidateTextBgBtn");
   const clearBg = document.getElementById("ctxTextBgClear");
   const bindLive = (id, fn) => {
     const el = document.getElementById(id);
@@ -733,18 +900,11 @@ function wireTextAnnotationCtxMenu() {
   bindLive("ctxTextOpacity", () => applyTextCtxMenuBoxProps());
   dst.addEventListener("change", () => applyTextCtxMenuBoxProps());
   size?.addEventListener?.("input", () => applyTextCtxMenuBoxProps());
-  col?.addEventListener?.("input", () => applyTextCtxMenuBoxProps());
-  col?.addEventListener?.("change", () => applyTextCtxMenuBoxProps());
-  bg?.addEventListener?.("input", () => {
+  validateColBtn?.addEventListener?.("click", () => applyTextCtxMenuBoxProps());
+  validateBgBtn?.addEventListener?.("click", () => {
     try {
-      bg.dataset.ctxTouched = "1";
+      if (bg) bg.dataset.ctxTouched = "1";
       document.getElementById("ctxTextBgLabel")?.classList?.remove?.("is-transparent");
-    } catch {}
-    applyTextCtxMenuBoxProps();
-  });
-  bg?.addEventListener?.("change", () => {
-    try {
-      bg.dataset.ctxTouched = "1";
     } catch {}
     applyTextCtxMenuBoxProps();
   });
@@ -1030,23 +1190,18 @@ function wireShapeAnnotationCtxMenu() {
     el?.addEventListener?.("input", fn);
     el?.addEventListener?.("change", fn);
   };
-  bindLive("ctxShapeFill", () => applyShapeCtxMenuProps());
   bindLive("ctxShapeFillOp", () => applyShapeCtxMenuProps());
-  bindLive("ctxShapeStroke", () => applyShapeCtxMenuProps());
   bindLive("ctxShapeStrokeOp", () => applyShapeCtxMenuProps());
   bindLive("ctxShapeStrokeW", () => applyShapeCtxMenuProps());
   bindLive("ctxShapeRotation", () => applyShapeCtxMenuProps());
   bindLive("ctxShapeOpacity", () => applyShapeCtxMenuProps());
+  document.getElementById("ctxValidateShapeFillBtn")?.addEventListener?.("click", () => applyShapeCtxMenuProps());
+  document.getElementById("ctxValidateShapeStrokeBtn")?.addEventListener?.("click", () => applyShapeCtxMenuProps());
   const bd = document.getElementById("ctxShapeBackdrop");
-  const touchBd = () => {
-    if (bd) bd.dataset.ctxTouched = "1";
-  };
-  bd?.addEventListener?.("input", () => {
-    touchBd();
-    applyShapeCtxMenuProps();
-  });
-  bd?.addEventListener?.("change", () => {
-    touchBd();
+  document.getElementById("ctxValidateShapeBackdropBtn")?.addEventListener?.("click", () => {
+    try {
+      if (bd) bd.dataset.ctxTouched = "1";
+    } catch {}
     applyShapeCtxMenuProps();
   });
   bindLive("ctxShapeBackdropOp", () => applyShapeCtxMenuProps());
@@ -1209,10 +1364,266 @@ function scheduleAutoGrowText(tab, item, node, source = "render") {
 }
 
 const I18N = {
-  fr: { language: "🌐 Langue: FR", open: "📂 Ouvrir PDF", addText: "🔤 + Texte", addShape: "🔷 + Forme", addImage: "🖼️ + Image", del: "🗑️ Supprimer", width: "Largeur", height: "Hauteur", rotation: "Rotation", opacity: "Opacite (%)", txt: "Txt", bg: "Fond", pad: "Marges", font: "Police", size: "Taille", apply: "✅ Appliquer", fitW: "↔️ Fit largeur", fitP: "🗐 Fit page", noPdf: "Aucun PDF", ready: "Pret", choose: "Choisir la langue:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Appelez la barre de menu avec F10 (afficher / masquer).", shapeFill: "Remplissage", shapeFillOp: "Opacite remplissage (%)", shapeStroke: "Contour", shapeStrokeOp: "Opacite contour (%)", shapeStrokeW: "Epaisseur contour (px)", shapeBackdrop: "Fond derriere la forme", shapeBackdropOp: "Opacite fond (%)" },
-  en: { language: "🌐 Language: EN", open: "📂 Open PDF", addText: "🔤 + Text", addShape: "🔷 + Shape", addImage: "🖼️ + Image", del: "🗑️ Delete", width: "Width", height: "Height", rotation: "Rotation", opacity: "Opacity (%)", txt: "Text", bg: "Background", pad: "Padding", font: "Font", size: "Size", apply: "✅ Apply", fitW: "↔️ Fit width", fitP: "🗐 Fit page", noPdf: "No PDF", ready: "Ready", choose: "Choose language:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Press F10 to show or hide the menu toolbar.", shapeFill: "Fill", shapeFillOp: "Fill opacity (%)", shapeStroke: "Outline", shapeStrokeOp: "Outline opacity (%)", shapeStrokeW: "Outline width (px)", shapeBackdrop: "Backdrop behind shape", shapeBackdropOp: "Backdrop opacity (%)" },
-  es: { language: "🌐 Idioma: ES", open: "📂 Abrir PDF", addText: "🔤 + Texto", addShape: "🔷 + Forma", addImage: "🖼️ + Imagen", del: "🗑️ Borrar", width: "Ancho", height: "Alto", rotation: "Rotacion", opacity: "Opacidad (%)", txt: "Texto", bg: "Fondo", pad: "Margen", font: "Fuente", size: "Tamano", apply: "✅ Aplicar", fitW: "↔️ Ajustar ancho", fitP: "🗐 Ajustar pagina", noPdf: "Sin PDF", ready: "Listo", choose: "Elige idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Pulse F10 para mostrar u ocultar la barra de menu.", shapeFill: "Relleno", shapeFillOp: "Opacidad relleno (%)", shapeStroke: "Borde", shapeStrokeOp: "Opacidad borde (%)", shapeStrokeW: "Grosor borde (px)", shapeBackdrop: "Fondo detras de la forma", shapeBackdropOp: "Opacidad fondo (%)" },
-  pt: { language: "🌐 Idioma: PT", open: "📂 Abrir PDF", addText: "🔤 + Texto", addShape: "🔷 + Forma", addImage: "🖼️ + Imagem", del: "🗑️ Excluir", width: "Largura", height: "Altura", rotation: "Rotacao", opacity: "Opacidade (%)", txt: "Texto", bg: "Fundo", pad: "Margem", font: "Fonte", size: "Tamanho", apply: "✅ Aplicar", fitW: "↔️ Ajustar largura", fitP: "🗐 Ajustar pagina", noPdf: "Nenhum PDF", ready: "Pronto", choose: "Escolha o idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues", f10Toolbar: "Pressione F10 para mostrar ou ocultar a barra de menu.", shapeFill: "Preenchimento", shapeFillOp: "Opacidade preenchimento (%)", shapeStroke: "Contorno", shapeStrokeOp: "Opacidade contorno (%)", shapeStrokeW: "Espessura contorno (px)", shapeBackdrop: "Fundo atras da forma", shapeBackdropOp: "Opacidade fundo (%)" }
+  fr: {
+    appName: "Editify",
+    welcomeTitle: "Bienvenue dans Editify",
+    language: "🌐 Langue: FR",
+    open: "📂 Ouvrir PDF",
+    addText: "🔤 + Texte",
+    addShape: "🔷 + Forme",
+    addImage: "🖼️ + Image",
+    del: "🗑️ Supprimer",
+    undo: "↶ Annuler",
+    redo: "↷ Rétablir",
+    merge: "🧩 Fusion",
+    split: "✂️ Diviser",
+    compress: "🗜️ Compression",
+    protect: "🔒 Protéger",
+    unprotect: "🔓 Déprotéger",
+    fileMenu: "Fichier ▾",
+    optionsMenu: "Options ▾",
+    menuLang: "Langue",
+    menuTools: "Outils PDF",
+    menuInfo: "Infos",
+    openPdf: "📂 Ouvrir PDF",
+    saveAs: "💾 Enregistrer sous…",
+    quit: "✕ Quitter",
+    about: "❔ À propos",
+    thumbs: "Miniatures",
+    changes: "Ajouts",
+    pageWord: "Page",
+    noAdds: "Aucun ajout",
+    noAddsDoc: "Aucun ajout sur ce document.",
+    jobsNone: "Aucun job.",
+    sensitiveNone: "Aucune action sensible.",
+    aboutTitle: "À propos",
+    aboutCreditsHtml:
+      'Créé par <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) et <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) dans le cadre du stage de Rafael.',
+    rgpdHtml: "<strong>RGPD</strong> : l’application est <strong>100% locale</strong> — aucune donnée ne quitte le poste de l’utilisateur (pas d’envoi vers un serveur).",
+    prevPage: "◀ Page -",
+    nextPage: "Page + ▶",
+    cancel: "Annuler",
+    retry: "Relancer",
+    width: "Largeur",
+    height: "Hauteur",
+    rotation: "Rotation",
+    opacity: "Opacite (%)",
+    txt: "Txt",
+    bg: "Fond",
+    pad: "Marges",
+    font: "Police",
+    size: "Taille",
+    apply: "✅ Appliquer",
+    validate: "✅ Valider",
+    fitW: "↔️ Ajuster largeur",
+    fitP: "🗐 Ajuster page",
+    noPdf: "Aucun PDF",
+    ready: "Pret",
+    choose: "Choisir la langue:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
+    f10Toolbar: "Appelez la barre de menu avec F10 (afficher / masquer).",
+    shapeFill: "Remplissage",
+    shapeFillOp: "Opacite remplissage (%)",
+    shapeStroke: "Contour",
+    shapeStrokeOp: "Opacite contour (%)",
+    shapeStrokeW: "Epaisseur contour (px)",
+    shapeBackdrop: "Fond derriere la forme",
+    shapeBackdropOp: "Opacite fond (%)"
+  },
+  en: {
+    menuLang: "Language",
+    menuTools: "PDF tools",
+    menuInfo: "Info",
+    openPdf: "📂 Open PDF",
+    saveAs: "💾 Save as…",
+    quit: "✕ Quit",
+    about: "❔ About",
+    thumbs: "Thumbnails",
+    changes: "Changes",
+    pageWord: "Page",
+    noAdds: "No adds",
+    noAddsDoc: "No adds on this document.",
+    jobsNone: "No jobs.",
+    sensitiveNone: "No sensitive actions.",
+    aboutTitle: "About",
+    aboutCreditsHtml:
+      'Created by <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) and <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) as part of Rafael’s internship.',
+    rgpdHtml: "<strong>GDPR</strong>: the app is <strong>100% local</strong> — no data leaves the user's device (no server upload).",
+    prevPage: "◀ Page -",
+    nextPage: "Page + ▶",
+    cancel: "Cancel",
+    retry: "Retry",
+    appName: "Editify",
+    welcomeTitle: "Welcome to Editify",
+    language: "🌐 Language: EN",
+    open: "📂 Open PDF",
+    addText: "🔤 + Text",
+    addShape: "🔷 + Shape",
+    addImage: "🖼️ + Image",
+    del: "🗑️ Delete",
+    undo: "↶ Undo",
+    redo: "↷ Redo",
+    merge: "🧩 Merge",
+    split: "✂️ Split",
+    compress: "🗜️ Compress",
+    protect: "🔒 Protect",
+    unprotect: "🔓 Unprotect",
+    fileMenu: "File ▾",
+    optionsMenu: "Options ▾",
+    width: "Width",
+    height: "Height",
+    rotation: "Rotation",
+    opacity: "Opacity (%)",
+    txt: "Text",
+    bg: "Background",
+    pad: "Padding",
+    font: "Font",
+    size: "Size",
+    apply: "✅ Apply",
+    validate: "✅ Apply",
+    fitW: "↔️ Fit width",
+    fitP: "🗐 Fit page",
+    noPdf: "No PDF",
+    ready: "Ready",
+    choose: "Choose language:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
+    f10Toolbar: "Press F10 to show or hide the menu toolbar.",
+    shapeFill: "Fill",
+    shapeFillOp: "Fill opacity (%)",
+    shapeStroke: "Outline",
+    shapeStrokeOp: "Outline opacity (%)",
+    shapeStrokeW: "Outline width (px)",
+    shapeBackdrop: "Backdrop behind shape",
+    shapeBackdropOp: "Backdrop opacity (%)"
+  },
+  es: {
+    menuLang: "Idioma",
+    menuTools: "Herramientas PDF",
+    menuInfo: "Info",
+    openPdf: "📂 Abrir PDF",
+    saveAs: "💾 Guardar como…",
+    quit: "✕ Salir",
+    about: "❔ Acerca de",
+    thumbs: "Miniaturas",
+    changes: "Cambios",
+    pageWord: "Página",
+    noAdds: "Sin añadidos",
+    noAddsDoc: "Sin añadidos en este documento.",
+    jobsNone: "Sin trabajos.",
+    sensitiveNone: "Sin acciones sensibles.",
+    aboutTitle: "Acerca de",
+    aboutCreditsHtml:
+      'Creado por <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) y <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) en el marco de la práctica de Rafael.',
+    rgpdHtml: "<strong>RGPD</strong>: la aplicación es <strong>100% local</strong> — ningún dato sale del dispositivo del usuario (sin envío a un servidor).",
+    prevPage: "◀ Página -",
+    nextPage: "Página + ▶",
+    cancel: "Cancelar",
+    retry: "Reintentar",
+    appName: "Editify",
+    welcomeTitle: "Bienvenido a Editify",
+    language: "🌐 Idioma: ES",
+    open: "📂 Abrir PDF",
+    addText: "🔤 + Texto",
+    addShape: "🔷 + Forma",
+    addImage: "🖼️ + Imagen",
+    del: "🗑️ Borrar",
+    undo: "↶ Deshacer",
+    redo: "↷ Rehacer",
+    merge: "🧩 Unir",
+    split: "✂️ Dividir",
+    compress: "🗜️ Comprimir",
+    protect: "🔒 Proteger",
+    unprotect: "🔓 Desproteger",
+    fileMenu: "Archivo ▾",
+    optionsMenu: "Opciones ▾",
+    width: "Ancho",
+    height: "Alto",
+    rotation: "Rotación",
+    opacity: "Opacidad (%)",
+    txt: "Texto",
+    bg: "Fondo",
+    pad: "Margen",
+    font: "Fuente",
+    size: "Tamaño",
+    apply: "✅ Aplicar",
+    validate: "✅ Aplicar",
+    fitW: "↔️ Ajustar ancho",
+    fitP: "🗐 Ajustar página",
+    noPdf: "Sin PDF",
+    ready: "Listo",
+    choose: "Elige idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
+    f10Toolbar: "Pulse F10 para mostrar u ocultar la barra de menú.",
+    shapeFill: "Relleno",
+    shapeFillOp: "Opacidad relleno (%)",
+    shapeStroke: "Borde",
+    shapeStrokeOp: "Opacidad borde (%)",
+    shapeStrokeW: "Grosor borde (px)",
+    shapeBackdrop: "Fondo detrás de la forma",
+    shapeBackdropOp: "Opacidad fondo (%)"
+  },
+  pt: {
+    menuLang: "Idioma",
+    menuTools: "Ferramentas PDF",
+    menuInfo: "Info",
+    openPdf: "📂 Abrir PDF",
+    saveAs: "💾 Salvar como…",
+    quit: "✕ Sair",
+    about: "❔ Sobre",
+    thumbs: "Miniaturas",
+    changes: "Alterações",
+    pageWord: "Página",
+    noAdds: "Sem adições",
+    noAddsDoc: "Sem adições neste documento.",
+    jobsNone: "Sem jobs.",
+    sensitiveNone: "Sem ações sensíveis.",
+    aboutTitle: "Sobre",
+    aboutCreditsHtml:
+      'Criado por <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) e <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) no âmbito do estágio do Rafael.',
+    rgpdHtml: "<strong>RGPD</strong>: o aplicativo é <strong>100% local</strong> — nenhum dado sai do computador do usuário (sem envio para servidor).",
+    prevPage: "◀ Página -",
+    nextPage: "Página + ▶",
+    cancel: "Cancelar",
+    retry: "Tentar novamente",
+    appName: "Editify",
+    welcomeTitle: "Bem-vindo ao Editify",
+    language: "🌐 Idioma: PT",
+    open: "📂 Abrir PDF",
+    addText: "🔤 + Texto",
+    addShape: "🔷 + Forma",
+    addImage: "🖼️ + Imagem",
+    del: "🗑️ Excluir",
+    undo: "↶ Desfazer",
+    redo: "↷ Refazer",
+    merge: "🧩 Mesclar",
+    split: "✂️ Dividir",
+    compress: "🗜️ Comprimir",
+    protect: "🔒 Proteger",
+    unprotect: "🔓 Desproteger",
+    fileMenu: "Arquivo ▾",
+    optionsMenu: "Opções ▾",
+    width: "Largura",
+    height: "Altura",
+    rotation: "Rotação",
+    opacity: "Opacidade (%)",
+    txt: "Texto",
+    bg: "Fundo",
+    pad: "Margem",
+    font: "Fonte",
+    size: "Tamanho",
+    apply: "✅ Aplicar",
+    validate: "✅ Aplicar",
+    fitW: "↔️ Ajustar largura",
+    fitP: "🗐 Ajustar página",
+    noPdf: "Nenhum PDF",
+    ready: "Pronto",
+    choose: "Escolha o idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
+    f10Toolbar: "Pressione F10 para mostrar ou ocultar a barra de menu.",
+    shapeFill: "Preenchimento",
+    shapeFillOp: "Opacidade preenchimento (%)",
+    shapeStroke: "Contorno",
+    shapeStrokeOp: "Opacidade contorno (%)",
+    shapeStrokeW: "Espessura contorno (px)",
+    shapeBackdrop: "Fundo atrás da forma",
+    shapeBackdropOp: "Opacidade fundo (%)"
+  }
 };
 
 const SHAPE_TYPES = new Set([
@@ -1241,7 +1652,8 @@ const SHAPE_POLYGON_POINTS = {
   octagon: "30,0 70,0 100,30 100,70 70,100 30,100 0,70 0,30",
   star: "50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35",
   arrow: "0,35 70,35 70,15 100,50 70,85 70,65 0,65",
-  heart: "50,92 90,58 90,30 75,15 50,28 25,15 10,30 10,58",
+  // Cœur : contour polygonal stable et symétrique (approximation de courbes + "creux" en haut).
+  heart: "50,92 62,82 74,70 84,56 90,42 88,30 80,20 68,16 58,20 50,32 42,20 32,16 20,20 12,30 10,42 16,56 26,70 38,82",
   cross: "35,0 65,0 65,35 100,35 100,65 65,65 65,100 35,100 35,65 0,65 0,35 35,35",
   parallelogram: "18,0 100,0 82,100 0,100",
   trapezoid: "18,0 82,0 100,100 0,100"
@@ -1464,9 +1876,52 @@ function applyLanguage() {
   addShapeBtn.textContent = t("addShape");
   addImageBtn.textContent = t("addImage");
   deleteSelectedBtn.textContent = t("del");
+  undoBtn.textContent = t("undo");
+  redoBtn.textContent = t("redo");
   fitWidthBtn.textContent = t("fitW");
   fitPageBtn.textContent = t("fitP");
   applyPropsBtn.textContent = t("apply");
+  if (validateTextColorBtn) validateTextColorBtn.textContent = t("validate");
+  if (applyBgBtn) applyBgBtn.textContent = t("validate");
+  if (validateShapeFillBtn) validateShapeFillBtn.textContent = t("validate");
+  if (validateShapeStrokeBtn) validateShapeStrokeBtn.textContent = t("validate");
+  if (validateShapeBackdropBtn) validateShapeBackdropBtn.textContent = t("validate");
+  if (toolbarFileBtn) toolbarFileBtn.textContent = t("fileMenu");
+  if (toolbarOptionsBtn) toolbarOptionsBtn.textContent = t("optionsMenu");
+  if (menuLangLabel) menuLangLabel.textContent = t("menuLang");
+  if (menuToolsLabel) menuToolsLabel.textContent = t("menuTools");
+  if (menuInfoLabel) menuInfoLabel.textContent = t("menuInfo");
+  if (toolbarOpenPdfBtn) toolbarOpenPdfBtn.textContent = t("openPdf");
+  if (toolbarSaveAsBtn) toolbarSaveAsBtn.textContent = t("saveAs");
+  if (toolbarQuitBtn) toolbarQuitBtn.textContent = t("quit");
+  if (toolbarAboutMenuItem) toolbarAboutMenuItem.textContent = t("about");
+  if (thumbsTitle) thumbsTitle.textContent = t("thumbs");
+  if (changesTitle) changesTitle.textContent = t("changes");
+  if (prevBtn) prevBtn.textContent = t("prevPage");
+  if (nextBtn) nextBtn.textContent = t("nextPage");
+  try {
+    if (aboutRgpd) aboutRgpd.innerHTML = t("rgpdHtml");
+  } catch {}
+  try {
+    if (aboutTitleEl) aboutTitleEl.textContent = t("aboutTitle");
+    if (aboutCreditsEl) aboutCreditsEl.innerHTML = t("aboutCreditsHtml");
+  } catch {}
+  // Menu "Outils PDF" (barre Options).
+  try {
+    if (mergeBtn) mergeBtn.textContent = t("merge");
+    if (splitBtn) splitBtn.textContent = t("split");
+    if (compressBtn) compressBtn.textContent = t("compress");
+    if (protectBtn) protectBtn.textContent = t("protect");
+    if (unprotectBtn) unprotectBtn.textContent = t("unprotect");
+  } catch {}
+  // Nom produit / écran d'accueil.
+  try {
+    document.title = t("appName");
+    const at = document.getElementById("appTitle");
+    if (at) at.textContent = t("appName");
+    const wt = document.getElementById("welcomeTitle");
+    if (wt) wt.textContent = t("welcomeTitle");
+  } catch {}
   setLabelPrefix("propWidth", t("width"));
   setLabelPrefix("propHeight", t("height"));
   setLabelPrefix("propRotation", t("rotation"));
@@ -1502,8 +1957,48 @@ function setLanguage(lang) {
   const next = String(lang || "fr").toLowerCase();
   if (!I18N[next]) return;
   state.language = next;
+  try {
+    localStorage.setItem("editify:lang", next);
+  } catch {
+    /* ignore */
+  }
   applyLanguage();
+  applySpellcheckLanguageBestEffort();
   setStatus(t("ready"));
+}
+
+function getSpellcheckBcp47FromUiLang(uiLang) {
+  const l = String(uiLang || "fr").toLowerCase();
+  if (l === "fr") return "fr-FR";
+  if (l === "en") return "en-US";
+  if (l === "es") return "es-ES";
+  if (l === "pt") return "pt-PT";
+  return "fr-FR";
+}
+
+function applySpellcheckLanguageBestEffort() {
+  const bcp47 = getSpellcheckBcp47FromUiLang(state.language);
+  try {
+    document.documentElement.lang = bcp47;
+  } catch {}
+
+  // Applique immédiatement aux éditeurs de texte ouverts (édition en cours).
+  try {
+    const editors = document.querySelectorAll("#annotationLayer .text-editor");
+    editors.forEach((ed) => {
+      try {
+        ed.spellcheck = true;
+        ed.setAttribute("lang", bcp47);
+      } catch {}
+    });
+  } catch {}
+
+  // Active le dictionnaire côté Electron (si supporté).
+  try {
+    window.maniPdfApi?.setSpellcheckLanguages?.([bcp47]);
+  } catch {
+    /* ignore */
+  }
 }
 
 function getSafeZoneSize() {
@@ -1725,7 +2220,7 @@ async function loadSession() {
 function renderJobs(jobs) {
   jobsPanel.innerHTML = "";
   if (!jobs?.length) {
-    jobsPanel.textContent = "Aucun job.";
+    jobsPanel.textContent = t("jobsNone");
     return;
   }
   jobs
@@ -1741,7 +2236,7 @@ function renderJobs(jobs) {
       row.appendChild(text);
       if (job.status === "queued") {
         const cancelBtn = document.createElement("button");
-        cancelBtn.textContent = "Cancel";
+        cancelBtn.textContent = t("cancel");
         cancelBtn.onclick = async () => {
           await window.maniPdfApi.cancelJob(job.id);
           await refreshJobs();
@@ -1750,7 +2245,7 @@ function renderJobs(jobs) {
       }
       if (job.status === "failed" || job.status === "cancelled") {
         const retryBtn = document.createElement("button");
-        retryBtn.textContent = "Retry";
+        retryBtn.textContent = t("retry");
         retryBtn.onclick = async () => {
           await window.maniPdfApi.retryJob(job.id);
           await refreshJobs();
@@ -1771,7 +2266,7 @@ async function refreshJobs() {
 function renderSensitiveActions(actions) {
   sensitivePanel.innerHTML = "";
   if (!actions?.length) {
-    sensitivePanel.textContent = "Aucune action sensible.";
+    sensitivePanel.textContent = t("sensitiveNone");
     return;
   }
   actions
@@ -1920,7 +2415,7 @@ function updateViewer() {
     setStatus("Erreur rendu PDF.");
 
   });
-  pageInfo.textContent = `Page ${tab.currentPage || 1}`;
+  pageInfo.textContent = `${t("pageWord")} ${tab.currentPage || 1}`;
 }
 
 function clampZoomScale(value) {
@@ -2018,7 +2513,7 @@ function setActivePage(pageNumber) {
   const tab = getActiveTab();
   if (!tab || !pagesContainer) return;
   tab.currentPage = pageNumber;
-  pageInfo.textContent = `Page ${pageNumber}`;
+  pageInfo.textContent = `${t("pageWord")} ${pageNumber}`;
 
   pagesContainer.querySelectorAll(".pdf-page").forEach((p) => p.classList.remove("active"));
   const active = pagesContainer.querySelector(`.pdf-page[data-page="${pageNumber}"]`);
@@ -2575,7 +3070,8 @@ function renderSplitWorkspace() {
   if (!splitWorkspaceGroups || !splitWorkspaceState) return;
   const st = splitWorkspaceState;
   splitWorkspaceGroups.innerHTML = "";
-  for (const g of st.groups) {
+  for (let gi = 0; gi < st.groups.length; gi += 1) {
+    const g = st.groups[gi];
     const section = document.createElement("section");
     section.className = "split-group";
     section.dataset.groupId = g.id;
@@ -2596,6 +3092,27 @@ function renderSplitWorkspace() {
     label.appendChild(span);
     label.appendChild(inp);
     header.appendChild(label);
+    // Suppression possible uniquement pour les groupes ajoutés (pas les 2 premiers).
+    if (gi >= 2) {
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "split-group-delete";
+      del.textContent = "Supprimer";
+      del.addEventListener("click", () => {
+        try {
+          // Remettre les pages dans le groupe 1 pour éviter toute perte.
+          const g1 = st.groups[0];
+          g1.pages.push(...g.pages);
+          g1.pages = Array.from(new Set(g1.pages)).sort((a, b) => a - b);
+          // Retirer le groupe.
+          st.groups = st.groups.filter((x) => x.id !== g.id);
+          st.selected.clear();
+        } catch {}
+        renderSplitWorkspace();
+        scheduleSplitWorkspaceAutosave();
+      });
+      header.appendChild(del);
+    }
     section.appendChild(header);
     const body = document.createElement("div");
     body.className = "split-group-body";
@@ -2818,7 +3335,10 @@ function renderAnnotations() {
         ed.setAttribute("role", "textbox");
         ed.setAttribute("aria-multiline", "true");
         ed.contentEditable = "true";
-        ed.spellcheck = false;
+        ed.spellcheck = true;
+        try {
+          ed.setAttribute("lang", getSpellcheckBcp47FromUiLang(state.language));
+        } catch {}
         if (a.textHtml && String(a.textHtml).trim()) {
           ed.innerHTML = sanitizeTextHtml(a.textHtml);
         } else {
@@ -3247,6 +3767,15 @@ function startResize(event, id, mode = "br") {
   activePointerCleanup = up;
 }
 
+function computeInsertPositionForNewAnnotation(tab, annotation, zone) {
+  const p = state.lastPointer && Number(state.lastPointer.page) === Number(tab.currentPage || 1) ? state.lastPointer : null;
+  const cx = p ? p.x : zone.width / 2;
+  const cy = p ? p.y : zone.height / 2;
+  // Positionner top-left proche du curseur, sans sortir de la page.
+  annotation.x = cx - (annotation.w || 20) / 2;
+  annotation.y = cy - (annotation.h || 20) / 2;
+}
+
 function addAnnotation(type, extra = {}) {
   const tab = getActiveTab();
   if (!tab) return;
@@ -3274,6 +3803,7 @@ function addAnnotation(type, extra = {}) {
     mergeShapeStyleFields(annotation);
   }
   const zone = getSafeZoneSize();
+  computeInsertPositionForNewAnnotation(tab, annotation, zone);
   fitAnnotationToSafeZone(annotation, zone);
   annotations.push(annotation);
   state.selectedAnnotationId = id;
@@ -3400,7 +3930,6 @@ function syncPropertyInputs() {
     propPadding.value = String(Math.round(item.padding ?? 6));
     propFontFamily.value = item.fontFamily || "Arial";
     propFontSize.value = String(Math.round(item.fontSize ?? 14));
-    if (propHalo) propHalo.checked = item.halo !== false;
   }
   if (isShape && propShapeFill && propShapeFillOpacity && propShapeStroke && propShapeStrokeWidth) {
     mergeShapeStyleFields(item);
@@ -3444,7 +3973,6 @@ function applySelectedProperties() {
     item.padding = Math.max(0, Math.min(64, Number(propPadding.value) || 0));
     item.fontFamily = propFontFamily.value || "Arial";
     item.fontSize = Math.max(8, Math.min(96, Number(propFontSize.value) || 14));
-    if (propHalo) item.halo = !!propHalo.checked;
   } else if (SHAPE_TYPES.has(item.type) && propShapeFill && propShapeFillOpacity && propShapeStroke && propShapeStrokeWidth) {
     const prevFill = item.fillColor;
     const prevStroke = item.strokeColor;
@@ -3601,6 +4129,18 @@ nextBtn?.addEventListener?.("click", () => pageShift(1));
 addTextBtn?.addEventListener?.("click", () => addAnnotation("text"));
 addShapeBtn?.addEventListener?.("click", openShapePicker);
 addImageBtn?.addEventListener?.("click", () => imageInput?.click?.());
+blankAddTextBtn?.addEventListener?.("click", () => {
+  hideBlankCanvasCtxMenu();
+  addAnnotation("text");
+});
+blankAddShapeBtn?.addEventListener?.("click", () => {
+  hideBlankCanvasCtxMenu();
+  openShapePicker();
+});
+blankAddImageBtn?.addEventListener?.("click", () => {
+  hideBlankCanvasCtxMenu();
+  imageInput?.click?.();
+});
 imageInput?.addEventListener?.("change", (event) => {
   const file = event.target.files[0];
   if (!file) return;
@@ -3612,6 +4152,7 @@ deleteSelectedBtn?.addEventListener?.("click", deleteSelected);
 undoBtn?.addEventListener?.("click", undo);
 redoBtn?.addEventListener?.("click", redo);
 applyPropsBtn?.addEventListener?.("click", applySelectedProperties);
+validateTextColorBtn?.addEventListener?.("click", () => applySelectedProperties());
 applyBgBtn?.addEventListener?.("click", () => {
   try {
     propBgColor.dataset.touched = "1";
@@ -3623,63 +4164,18 @@ propWidth?.addEventListener?.("input", applySelectedPropertiesLive);
 propHeight?.addEventListener?.("input", applySelectedPropertiesLive);
 propRotation?.addEventListener?.("input", applySelectedPropertiesLive);
 propOpacity?.addEventListener?.("input", applySelectedPropertiesLive);
-propTextColor?.addEventListener?.("input", applySelectedPropertiesLive);
-propShapeFill?.addEventListener?.("input", applySelectedPropertiesLive);
-propShapeFill?.addEventListener?.("change", applySelectedPropertiesLive);
 propShapeFillOpacity?.addEventListener?.("input", applySelectedPropertiesLive);
-propShapeStroke?.addEventListener?.("input", applySelectedPropertiesLive);
-propShapeStroke?.addEventListener?.("change", applySelectedPropertiesLive);
 propShapeStrokeWidth?.addEventListener?.("input", applySelectedPropertiesLive);
 propShapeStrokeOpacity?.addEventListener?.("input", applySelectedPropertiesLive);
-propShapeBackdrop?.addEventListener?.("input", applySelectedPropertiesLive);
-propShapeBackdrop?.addEventListener?.("change", applySelectedPropertiesLive);
 propShapeBackdropOpacity?.addEventListener?.("input", applySelectedPropertiesLive);
 
-function markBgTouchedAndApply() {
-  try {
-    propBgColor.dataset.touched = "1";
-    // Si l'utilisateur touche "Fond", ce n'est plus transparent.
-    propBgColorLabel?.classList?.remove?.("is-transparent");
-  } catch {}
-  // Important: toucher -> puis appliquer, sinon applySelectedProperties ignore le fond.
-  applySelectedPropertiesLive();
-}
+validateShapeFillBtn?.addEventListener?.("click", () => applySelectedProperties());
+validateShapeStrokeBtn?.addEventListener?.("click", () => applySelectedProperties());
+validateShapeBackdropBtn?.addEventListener?.("click", () => applySelectedProperties());
 
-// Sous Electron, le picker peut déclencher "change" plutôt que "input".
-propBgColor?.addEventListener?.("input", markBgTouchedAndApply);
-propBgColor?.addEventListener?.("change", markBgTouchedAndApply);
 propPadding?.addEventListener?.("input", applySelectedPropertiesLive);
 propFontFamily?.addEventListener?.("change", applySelectedPropertiesLive);
 propFontSize?.addEventListener?.("input", applySelectedPropertiesLive);
-propHalo?.addEventListener?.("change", applySelectedPropertiesLive);
-
-// E9: Presets (appliqués au champ texte sélectionné)
-function applyTextPreset(preset) {
-  const tab = getActiveTab();
-  const item = getSelectedAnnotation();
-  if (!tab || !item || item.type !== "text") return;
-  captureSnapshot(tab);
-  if (preset === "pen") {
-    item.bgColor = null;
-    item.halo = true;
-    // Ne pas "toucher" le color picker (override explicite).
-    try {
-      propBgColor.dataset.touched = "0";
-    } catch {}
-  } else if (preset === "highlighter") {
-    // Fond semi-transparent (ne passe pas par color picker HTML).
-    item.bgColor = "rgba(255, 230, 90, 0.45)";
-    item.halo = false;
-    try {
-      propBgColor.dataset.touched = "0";
-    } catch {}
-  }
-  syncPropertyInputs();
-  renderAnnotations();
-  scheduleAutoSave();
-}
-presetPenBtn?.addEventListener?.("click", () => applyTextPreset("pen"));
-presetHighlighterBtn?.addEventListener?.("click", () => applyTextPreset("highlighter"));
 mergeBtn?.addEventListener?.("click", () => {
   closeAllFlyoutMenus();
   void createMergeJob();
@@ -3694,10 +4190,33 @@ splitWorkspaceValidateBtn?.addEventListener?.("click", () => void validateSplitW
 splitWorkspaceOverlay?.addEventListener?.("click", (e) => {
   if (e.target === splitWorkspaceOverlay) closeSplitWorkspace();
 });
+toolbarAboutBtn?.addEventListener?.("click", () => {
+  if (!aboutPopover) return;
+  const isOpen = !aboutPopover.classList.contains("hidden");
+  if (isOpen) hideAboutPopover();
+  else showAboutPopover();
+});
+aboutCloseBtn?.addEventListener?.("click", () => hideAboutPopover());
+toolbarAboutMenuItem?.addEventListener?.("click", () => {
+  try {
+    closeToolbarOptionsMenu();
+  } catch {}
+  showAboutPopoverNearOptions();
+});
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!splitWorkspaceOverlay || splitWorkspaceOverlay.classList.contains("hidden")) return;
   closeSplitWorkspace();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!blankCanvasCtxMenu || blankCanvasCtxMenu.classList.contains("hidden")) return;
+  hideBlankCanvasCtxMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!aboutPopover || aboutPopover.classList.contains("hidden")) return;
+  hideAboutPopover();
 });
 compressBtn?.addEventListener?.("click", () => {
   closeAllFlyoutMenus();
@@ -3782,6 +4301,11 @@ function closeAllFlyoutMenus() {
   closePdfToolsMenu();
   closeToolbarFileMenu();
   closeToolbarOptionsMenu();
+  hideChangesContextMenu();
+  hideBlankCanvasCtxMenu();
+  hideTextAnnotationCtxMenu();
+  hideShapeAnnotationCtxMenu();
+  hideImageAnnotationCtxMenu();
 }
 function togglePdfToolsMenu() {
   if (!pdfToolsMenu || !pdfToolsBtn) return;
@@ -4344,7 +4868,9 @@ function setupDragAndDrop() {
   }
 }
 
+loadPreferredLanguage();
 applyLanguage();
+applySpellcheckLanguageBestEffort();
 wireTextAnnotationCtxMenu();
 wireShapeAnnotationCtxMenu();
 wireImageAnnotationCtxMenu();
@@ -4356,6 +4882,13 @@ try {
     else if (action === "compress") void createCompressJob();
     else if (action === "protect") void createProtectJob();
     else if (action === "unprotect") void createUnprotectJob();
+  });
+} catch {
+  /* ignore */
+}
+try {
+  window.maniPdfApi?.onAboutRequested?.(() => {
+    showAboutPopoverNearOptions();
   });
 } catch {
   /* ignore */

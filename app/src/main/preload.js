@@ -41,5 +41,8 @@ contextBridge.exposeInMainWorld("maniPdfApi", {
   getWindowFullscreen: () => ipcRenderer.invoke("window:is-fullscreen"),
   onFullscreenChanged: (cb) => ipcRenderer.on("window:fullscreen-changed", (_, full) => cb(full)),
   onToolbarF10Toggle: (cb) => ipcRenderer.on("toolbar:f10-toggle", () => cb()),
-  onPdfToolAction: (cb) => ipcRenderer.on("app:pdf-tool", (_, action) => cb(action))
+  onPdfToolAction: (cb) => ipcRenderer.on("app:pdf-tool", (_, action) => cb(action)),
+  onAboutRequested: (cb) => ipcRenderer.on("app:about", () => cb()),
+  openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
+  setSpellcheckLanguages: (langs) => ipcRenderer.invoke("spellcheck:set-languages", langs)
 });

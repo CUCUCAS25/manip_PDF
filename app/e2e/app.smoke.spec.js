@@ -105,7 +105,7 @@ expect.extend({
 
 test("app boots and shows title", async () => {
   const { app, page } = await launchApp();
-  await expect(page.locator("h1")).toHaveText("Mani PDF Local");
+  await expect(page.locator("h1")).toHaveText("Editify");
   await app.close();
 });
 
@@ -163,14 +163,19 @@ test("load PDF, remove tab, add and edit text", async () => {
   await expect(page.locator("#changesList .change-item").first()).toContainText("Fenêtre texte");
   await expect(page.locator("#changesList .change-item .change-summary").first()).toContainText("Bonjour");
 
-  // E9: preset surligneur => fond non transparent, halo désactivé
-  // (à faire pendant que le champ est sélectionné/éditable)
-  await page.locator("#presetHighlighterBtn").click();
-  const bg = await getComputedStyleValue(page, "#annotationLayer .annotation.text.editing", "backgroundColor");
-  expect(bg).not.toBe("rgba(0, 0, 0, 0)");
-  const shadow = await getComputedStyleValue(page, "#annotationLayer .annotation.text.editing", "textShadow");
-  const shadowStr = String(shadow || "").trim().toLowerCase();
-  expect(shadowStr === "" || shadowStr.includes("none")).toBeTruthy();
+  // Correcteur orthographique: activé et dépend de la langue UI (au moins via attributs DOM).
+  await expect(editor).toHaveCount(1);
+  await expect(editor).toHaveAttribute("lang", /^(fr-FR|fr)$/);
+  const sc = await editor.evaluate((el) => Boolean(el.spellcheck));
+  expect(sc).toBeTruthy();
+
+  // Basculer la langue via l'event main → renderer, puis vérifier la mise à jour.
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win?.webContents?.send?.("app:set-language", "en");
+  });
+  await page.waitForTimeout(150);
+  await expect(editor).toHaveAttribute("lang", /^(en-US|en)$/);
 
   // Sortie édition via ESC (E6-S2)
   await page.keyboard.press("Escape");
