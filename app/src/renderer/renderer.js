@@ -1,3 +1,14 @@
+/**
+ * Renderer principal — Mani PDF Local (Electron, pas Node).
+ *
+ * Architecture:
+ * - Un fichier par rôle historique: état UI (`state`), rendu PDF (pdf.js via bridge), calque d'annotations HTML,
+ *   file d'attente de jobs PDF via IPC (`maniPdfApi` défini dans preload, pas d'accès fs direct).
+ * - Le service Python écoute sur 127.0.0.1:8765; le processus principal relaie les jobs après validation des chemins.
+ * - Annotations: rectangles logiques (x,y,w,h) + rotation CSS ; redimensionnement projeté dans le repère local.
+ * - Texte enrichi: `sanitizeTextHtml` réduit le risque XSS avant insertion dans le DOM.
+ * - Split pages: état local + brouillon `localStorage` ; export uniquement via job `split_groups` validé côté main.
+ */
 const welcomeScreen = document.getElementById("welcomeScreen");
 const addTextBtn = document.getElementById("addTextBtn");
 const addShapeBtn = document.getElementById("addShapeBtn");
@@ -1412,6 +1423,7 @@ function plainTextForAnnotationItem(item) {
   return "";
 }
 
+/** Réduit le XSS sur le HTML produit par contentEditable (pas un sanitizer complet type DOMPurify). */
 function sanitizeTextHtml(html) {
   const div = document.createElement("div");
   div.innerHTML = String(html || "");
@@ -2162,6 +2174,23 @@ function buildDefaultOutputPath(basePath, suffix) {
   return `${basePath.slice(0, dot)}-${suffix}${basePath.slice(dot)}`;
 }
 
+/**
+ * Enfile un job PDF (validation des chemins dans le main process). Affiche l'erreur utilisateur si refus.
+ * @returns {Promise<boolean>} true si le job est accepté
+ */
+async function enqueuePdfJob(type, payload, successStatus) {
+  const r = await window.maniPdfApi.createJob({ type, payload });
+  if (!r?.ok) {
+    const msg = typeof r?.error === "string" && r.error ? r.error : "Job refuse.";
+    setStatus(msg);
+    return false;
+  }
+  setStatus(successStatus);
+  await refreshJobs();
+  return true;
+}
+
+// --- Split par groupes (UI overlay) : état runtime + persistance brouillon locale ---
 function splitWorkspaceDraftKey(pdfPath) {
   return `maniSplitDraft:${pdfPath}`;
 }
@@ -2637,17 +2666,17 @@ async function validateSplitWorkspace() {
     setStatus("Split: aucun groupe avec des pages.");
     return;
   }
-  await window.maniPdfApi.createJob({
-    type: "split_groups",
-    payload: { input_path: tab.path, groups: exports }
-  });
-  setStatus("Job split (groupes) ajoute.");
+  const enqueued = await enqueuePdfJob(
+    "split_groups",
+    { input_path: tab.path, groups: exports },
+    "Job split (groupes) ajoute."
+  );
+  if (!enqueued) return;
   try {
     localStorage.removeItem(splitWorkspaceDraftKey(tab.path));
   } catch {
     /* ignore */
   }
-  await refreshJobs();
   closeSplitWorkspace();
 }
 
@@ -2659,12 +2688,7 @@ async function createMergeJob() {
     return;
   }
   const outputPath = buildDefaultOutputPath(pdfTabs[0], "merged");
-  await window.maniPdfApi.createJob({
-    type: "merge",
-    payload: { inputs: pdfTabs, output_path: outputPath }
-  });
-  setStatus("Job fusion ajoute.");
-  await refreshJobs();
+  await enqueuePdfJob("merge", { inputs: pdfTabs, output_path: outputPath }, "Job fusion ajoute.");
 }
 
 function createSplitJob() {
@@ -2679,12 +2703,7 @@ async function createCompressJob() {
     return;
   }
   const outputPath = buildDefaultOutputPath(tab.path, "compressed");
-  await window.maniPdfApi.createJob({
-    type: "compress",
-    payload: { input_path: tab.path, output_path: outputPath }
-  });
-  setStatus("Job compression ajoute.");
-  await refreshJobs();
+  await enqueuePdfJob("compress", { input_path: tab.path, output_path: outputPath }, "Job compression ajoute.");
 }
 
 async function createProtectJob() {
@@ -2700,12 +2719,11 @@ async function createProtectJob() {
     return;
   }
   const outputPath = buildDefaultOutputPath(tab.path, "protected");
-  await window.maniPdfApi.createJob({
-    type: "protect",
-    payload: { input_path: tab.path, output_path: outputPath, password }
-  });
-  setStatus("Job protect ajoute.");
-  await refreshJobs();
+  await enqueuePdfJob(
+    "protect",
+    { input_path: tab.path, output_path: outputPath, password },
+    "Job protect ajoute."
+  );
 }
 
 async function createUnprotectJob() {
@@ -2721,12 +2739,11 @@ async function createUnprotectJob() {
     return;
   }
   const outputPath = buildDefaultOutputPath(tab.path, "unprotected");
-  await window.maniPdfApi.createJob({
-    type: "unprotect",
-    payload: { input_path: tab.path, output_path: outputPath, password }
-  });
-  setStatus("Job unprotect ajoute.");
-  await refreshJobs();
+  await enqueuePdfJob(
+    "unprotect",
+    { input_path: tab.path, output_path: outputPath, password },
+    "Job unprotect ajoute."
+  );
 }
 
 function currentPageAnnotations(tab) {
@@ -3109,6 +3126,10 @@ function startDrag(event, id) {
   activePointerCleanup = up;
 }
 
+/**
+ * Redimensionne l'annotation : les deltas écran sont exprimés dans le repère local
+ * tourné de `item.rotation` (cohérent avec `transform-origin: 0 0` sur `.annotation`).
+ */
 function startResize(event, id, mode = "br") {
   if (event.button !== 0) return;
   if (interactionMode) return;

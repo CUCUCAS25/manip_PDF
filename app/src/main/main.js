@@ -59,6 +59,122 @@ function persistJobs() {
   fs.writeFileSync(jobsStatePath, JSON.stringify(jobs, null, 2), "utf8");
 }
 
+/** Types de jobs autorisés (file d'attente → service Python local). */
+const ALLOWED_JOB_TYPES = new Set([
+  "merge",
+  "split",
+  "split_groups",
+  "compress",
+  "protect",
+  "unprotect"
+]);
+
+/**
+ * Vérifie que le PDF de sortie est dans le même dossier que le PDF source.
+ * Limite l'écriture arbitraire si le payload IPC était altéré (défense en profondeur).
+ */
+function isOutputPdfInSameDirectoryAsInput(inputPath, outputPath) {
+  if (!inputPath || !outputPath || typeof inputPath !== "string" || typeof outputPath !== "string") {
+    return false;
+  }
+  if (!outputPath.toLowerCase().endsWith(".pdf")) return false;
+  try {
+    const inDir = path.normalize(path.dirname(path.resolve(inputPath)));
+    const outDir = path.normalize(path.dirname(path.resolve(outputPath)));
+    return inDir === outDir;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Valide le payload avant mise en file (chemins existants, sorties co-localisées avec la source).
+ * @returns {string|null} message d'erreur ou null si OK
+ */
+function validateJobPayload(jobType, payload) {
+  const p = payload || {};
+
+  if (!ALLOWED_JOB_TYPES.has(jobType)) {
+    return "Type de job non autorise.";
+  }
+
+  const requireExistingFile = (label, filePath) => {
+    if (!filePath || typeof filePath !== "string") {
+      return `${label} : chemin invalide.`;
+    }
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return `${label} : fichier introuvable.`;
+    }
+    return null;
+  };
+
+  switch (jobType) {
+    case "merge": {
+      if (!Array.isArray(p.inputs) || p.inputs.length < 2) {
+        return "Fusion : au moins deux fichiers PDF requis.";
+      }
+      for (let i = 0; i < p.inputs.length; i += 1) {
+        const err = requireExistingFile(`PDF ${i + 1}`, p.inputs[i]);
+        if (err) return err;
+      }
+      if (!p.output_path || typeof p.output_path !== "string") return "Chemin de sortie requis.";
+      if (!isOutputPdfInSameDirectoryAsInput(p.inputs[0], p.output_path)) {
+        return "La sortie doit etre dans le meme dossier que le premier PDF.";
+      }
+      return null;
+    }
+    case "split": {
+      const e = requireExistingFile("PDF source", p.input_path);
+      if (e) return e;
+      if (!p.output_path || typeof p.output_path !== "string") return "Chemin de sortie requis.";
+      if (!isOutputPdfInSameDirectoryAsInput(p.input_path, p.output_path)) {
+        return "La sortie doit etre dans le meme dossier que le PDF source.";
+      }
+      return null;
+    }
+    case "split_groups": {
+      const e = requireExistingFile("PDF source", p.input_path);
+      if (e) return e;
+      if (!Array.isArray(p.groups)) return "Structure de groupes invalide.";
+      for (const g of p.groups) {
+        if (!g || typeof g !== "object") return "Groupe invalide.";
+        const op = g.output_path;
+        const indices = g.page_indices;
+        if (op && String(op).trim()) {
+          if (!isOutputPdfInSameDirectoryAsInput(p.input_path, op)) {
+            return "Un chemin de sortie n'est pas dans le dossier du PDF source.";
+          }
+        }
+        if (indices != null && !Array.isArray(indices)) {
+          return "Indices de pages invalides.";
+        }
+        if (Array.isArray(indices)) {
+          for (const x of indices) {
+            const n = Number(x);
+            if (!Number.isFinite(n) || n < 1 || n > 99999) {
+              return "Indice de page invalide.";
+            }
+          }
+        }
+      }
+      return null;
+    }
+    case "compress":
+    case "protect":
+    case "unprotect": {
+      const e = requireExistingFile("PDF source", p.input_path);
+      if (e) return e;
+      if (!p.output_path || typeof p.output_path !== "string") return "Chemin de sortie requis.";
+      if (!isOutputPdfInSameDirectoryAsInput(p.input_path, p.output_path)) {
+        return "La sortie doit etre dans le meme dossier que le PDF source.";
+      }
+      return null;
+    }
+    default:
+      return "Job non supporte.";
+  }
+}
+
 function broadcastFullscreenState() {
   try {
     const full = Boolean(mainWindow?.isFullScreen?.());
@@ -486,11 +602,17 @@ ipcMain.handle("pdf:export-with-annotations", async (_, payload) => {
 });
 
 ipcMain.handle("job:create", async (_, input) => {
+  const jobType = input?.type;
+  const payload = input?.payload || {};
+  const validationError = validateJobPayload(jobType, payload);
+  if (validationError) {
+    return { ok: false, error: validationError };
+  }
   const id = `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   jobs.push({
     id,
-    type: input.type,
-    payload: input.payload || {},
+    type: jobType,
+    payload,
     status: "queued",
     progress: 0,
     error: null,

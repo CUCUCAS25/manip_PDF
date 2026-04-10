@@ -6,6 +6,9 @@ import logging
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+# Service local uniquement (127.0.0.1) — pas d'exposition réseau ; les entrées JSON
+# sont traitées par pdf_ops après validation des chemins dans les handlers.
+
 from pdf_ops import (
     apply_annotations,
     compress_pdf,

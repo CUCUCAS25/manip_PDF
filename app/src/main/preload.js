@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// API minimale exposée au renderer (contextIsolation) — pas de require("fs") côté UI.
 contextBridge.exposeInMainWorld("maniPdfApi", {
   isE2E: () => {
     try {

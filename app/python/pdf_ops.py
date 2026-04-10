@@ -524,6 +524,14 @@ def split_pdf(input_path: str, from_page: int, to_page: int, output_path: str) -
     return output_path
 
 
+def _assert_output_in_same_directory_as_input(input_path: str, output_path: str) -> None:
+    """Empêche l'écriture hors du dossier du PDF source (surcharge HTTP / IPC mal formée)."""
+    in_dir = os.path.normcase(os.path.dirname(os.path.abspath(input_path)))
+    out_dir = os.path.normcase(os.path.dirname(os.path.abspath(output_path)))
+    if in_dir != out_dir:
+        raise RuntimeError("Chemin de sortie non autorise (hors du dossier source).")
+
+
 def split_pdf_groups(input_path: str, groups: list[dict]) -> list[str]:
     """
     Exporte plusieurs PDF depuis un même source : chaque entrée contient
@@ -539,6 +547,7 @@ def split_pdf_groups(input_path: str, groups: list[dict]) -> list[str]:
         indices = g.get("page_indices") or []
         if not out_path or not indices:
             continue
+        _assert_output_in_same_directory_as_input(input_path, out_path)
         writer = PdfWriter()
         for p in indices:
             idx = int(p) - 1

@@ -59,6 +59,16 @@ class TestSplitPdfGroups(unittest.TestCase):
             self.assertEqual(len(outputs), 1)
             self.assertEqual(len(PdfReader(out).pages), 2)
 
+    def test_rejects_output_outside_source_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "src.pdf")
+            sub = os.path.join(tmp, "nested")
+            os.makedirs(sub, exist_ok=True)
+            out_bad = os.path.join(sub, "out.pdf")
+            self._create_pdf(src, 2)
+            with self.assertRaises(RuntimeError):
+                split_pdf_groups(src, [{"output_path": out_bad, "page_indices": [1]}])
+
 
 if __name__ == "__main__":
     unittest.main()
