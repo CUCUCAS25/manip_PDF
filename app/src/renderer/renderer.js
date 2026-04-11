@@ -4025,6 +4025,15 @@ function applySelectedPropertiesLive() {
   applySelectedProperties();
 }
 
+/** Comportement historique (36f53ac) : toucher « Fond » puis appliquer (sinon applySelectedProperties ignore le fond). */
+function markBgTouchedAndApply() {
+  try {
+    propBgColor.dataset.touched = "1";
+    propBgColorLabel?.classList?.remove?.("is-transparent");
+  } catch {}
+  applySelectedPropertiesLive();
+}
+
 function pageShift(delta) {
   const tab = getActiveTab();
   if (!tab) return;
@@ -4160,6 +4169,17 @@ applyBgBtn?.addEventListener?.("click", () => {
   } catch {}
   applySelectedProperties();
 });
+// couleur_forme_ok (36f53ac) : application live sur les pickers natifs (input type="color").
+// Sans cela, seul « Valider » applique — régression si les boutons ne sont pas utilisés ou sous Electron.
+propTextColor?.addEventListener?.("input", applySelectedPropertiesLive);
+propBgColor?.addEventListener?.("input", markBgTouchedAndApply);
+propBgColor?.addEventListener?.("change", markBgTouchedAndApply);
+propShapeFill?.addEventListener?.("input", applySelectedPropertiesLive);
+propShapeFill?.addEventListener?.("change", applySelectedPropertiesLive);
+propShapeStroke?.addEventListener?.("input", applySelectedPropertiesLive);
+propShapeStroke?.addEventListener?.("change", applySelectedPropertiesLive);
+propShapeBackdrop?.addEventListener?.("input", applySelectedPropertiesLive);
+propShapeBackdrop?.addEventListener?.("change", applySelectedPropertiesLive);
 propWidth?.addEventListener?.("input", applySelectedPropertiesLive);
 propHeight?.addEventListener?.("input", applySelectedPropertiesLive);
 propRotation?.addEventListener?.("input", applySelectedPropertiesLive);
