@@ -11,12 +11,15 @@
  *
  * Découpage i18n (bonnes pratiques):
  * - `renderer-i18n-data.js` : uniquement les dictionnaires (`window.__EDITIFY_I18N`). Chargé avant ce script (index.html).
- * - Ce fichier : `t` / `tr`, `applyLanguage`, constantes de clés (tooltips, formes), logique UI liée au DOM.
+ * - Ce fichier : `t` / `tr`, orchestration ; libellés DOM via `renderer-i18n-apply.js` (`i18nApply.applyLanguage()`).
  * - `renderer-text-html.js` : `sanitizeTextHtml`, plain text, surlignage orthographe (`window.__editifyTextHtml`).
  * - `renderer-text-ctx.js` : helpers format / sélection / remplacement (`window.__editifyTextCtxHelpers`).
  * - `renderer-utils.js` : logs, ids, clone presse-papiers (`window.__editifyUtils`).
  * - `renderer-toast.js` : toasts (`window.__editifyToast`).
  * - `renderer-session-log.js` : journal RAM session (`window.__editifySessionLog`).
+ * - `renderer-session-log-ui.js` : modal journal + écouteurs (`window.__editifySessionLogUi`, `bind()` après `chrome.bind()`).
+ * - `renderer-i18n-apply.js` : libellés / tooltips / aria (`window.__editifyI18nApply`, `bind()` après `sessionLogUi.bind()`).
+ * - `renderer-e2e-helpers.js` : `window.__maniE2E` pour Playwright (`window.__editifyE2eHelpers.bind()` en fin de fichier).
  * - `renderer-sidebars.js` : colonnes miniatures + ajouts (`window.__editifySidebars` + `bind()` après définition des dépendances).
  * - `renderer-text-ctx-menu.js` : menu contextuel texte + orthographe (`window.__editifyTextCtxMenu` + `bind()` après `syncPropertyInputs`).
  * - `renderer-shape-image-ctx-menu.js` : menus forme + image (`window.__editifyShapeImageCtxMenu`, `sim.bind()` avant `tcm.bind()`).
@@ -69,8 +72,21 @@ if (!window.__editifyPdfViewer) {
 if (!window.__editifySessionLog) {
   throw new Error("[editify] Charger renderer-session-log.js avant renderer.js (voir index.html).");
 }
+if (!window.__editifySessionLogUi) {
+  throw new Error("[editify] Charger renderer-session-log-ui.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyI18nApply) {
+  throw new Error("[editify] Charger renderer-i18n-apply.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyE2eHelpers) {
+  throw new Error("[editify] Charger renderer-e2e-helpers.js avant renderer.js (voir index.html).");
+}
 const pdfv = window.__editifyPdfViewer;
 const sessionLog = window.__editifySessionLog;
+const sessionLogUi = window.__editifySessionLogUi;
+const i18nApply = window.__editifyI18nApply;
+const SHAPE_TYPE_KEYS = i18nApply.SHAPE_TYPE_KEYS;
+const e2eHelpers = window.__editifyE2eHelpers;
 const {
   sanitizeTextHtml,
   stripTagsForPlain,
@@ -764,327 +780,6 @@ function tr(templateKey, vars) {
   return s;
 }
 
-const SHAPE_TYPE_KEYS = {
-  rect: "shapeRect",
-  ellipse: "shapeEllipse",
-  triangle: "shapeTriangle",
-  line: "shapeLine",
-  diamond: "shapeDiamond",
-  pentagon: "shapePentagon",
-  hexagon: "shapeHexagon",
-  octagon: "shapeOctagon",
-  star: "shapeStar",
-  arrow: "shapeArrow",
-  heart: "shapeHeart",
-  cross: "shapeCross",
-  parallelogram: "shapeParallelogram",
-  trapezoid: "shapeTrapezoid"
-};
-
-const SHAPE_GRID_ICONS = {
-  rect: "⬛",
-  ellipse: "⚪",
-  triangle: "🔺",
-  line: "➖",
-  diamond: "💠",
-  pentagon: "🔷",
-  hexagon: "⬢",
-  octagon: "🛑",
-  star: "⭐",
-  arrow: "➡️",
-  heart: "❤️",
-  cross: "✚",
-  parallelogram: "▱",
-  trapezoid: "⏢"
-};
-
-/** Clés I18N `shapeBtnRect`… dérivées des types (évite la duplication avec SHAPE_TYPE_KEYS). */
-const SHAPE_BTN_I18N_KEYS = Object.fromEntries(
-  Object.keys(SHAPE_TYPE_KEYS).map((k) => [
-    k,
-    `shapeBtn${k.charAt(0).toUpperCase()}${k.slice(1)}`
-  ])
-);
-
-/** data-tooltip → clé I18N `tt*`. */
-const TOOLTIP_BY_ELEMENT_ID = {
-  toolbarFileBtn: "ttToolbarFile",
-  toolbarOpenPdfBtn: "ttToolbarOpenPdf",
-  toolbarSaveAsBtn: "ttToolbarSaveAs",
-  toolbarQuitBtn: "ttToolbarQuit",
-  toolbarOptionsBtn: "ttToolbarOptions",
-  mergeBtn: "ttMerge",
-  splitBtn: "ttSplit",
-  compressBtn: "ttCompress",
-  protectBtn: "ttProtect",
-  unprotectBtn: "ttUnprotect",
-  toolbarAboutMenuItem: "ttAboutMenu",
-  toolbarSessionLogMenuItem: "ttSessionLog",
-  toolbarAboutBtn: "ttAboutBtn",
-  toolbarCloseBtn: "ttCloseApp",
-  addTextBtn: "ttAddText",
-  addShapeBtn: "ttAddShape",
-  addImageBtn: "ttAddImage",
-  deleteSelectedBtn: "ttDelete",
-  undoBtn: "ttUndo",
-  redoBtn: "ttRedo",
-  fitWidthBtn: "ttFitWidth",
-  fitPageBtn: "ttFitPage",
-  validateTextColorBtn: "ttValidateTextColor",
-  applyBgBtn: "ttValidateBg",
-  applyPropsBtn: "ttApplyProps",
-  prevBtn: "ttPrevPage",
-  nextBtn: "ttNextPage",
-  zoomOutBtn: "ttZoomOut",
-  zoomInBtn: "ttZoomIn"
-};
-
-function applyShapeGridLanguage() {
-  if (!shapeGrid) return;
-  shapeGrid.querySelectorAll("button[data-shape]").forEach((btn) => {
-    const shape = btn.getAttribute("data-shape");
-    const key = shape ? SHAPE_BTN_I18N_KEYS[shape] : null;
-    if (!key) return;
-    const icon = SHAPE_GRID_ICONS[shape] || "";
-    btn.textContent = `${icon} ${t(key)}`.trim();
-  });
-}
-
-function applyDataTooltipsFromMap() {
-  for (const [id, i18nKey] of Object.entries(TOOLTIP_BY_ELEMENT_ID)) {
-    const el = document.getElementById(id);
-    if (el) el.setAttribute("data-tooltip", t(i18nKey));
-  }
-}
-
-/** Libellés des menus contextuels d’annotation et du menu « canvas vierge ». */
-function applyContextMenusLanguage() {
-  const setEl = (id, key) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = t(key);
-  };
-  setEl("ctxTextMenuTitle", "ctxMenuText");
-  setEl("ctxShapeMenuTitle", "ctxMenuShape");
-  setEl("ctxImageMenuTitle", "ctxMenuImage");
-  setEl("blankCanvasMenuTitle", "ctxBlankTitle");
-  setEl("ctxLblTextRotation", "ctxRotationDeg");
-  setEl("ctxLblTextOpacity", "ctxOpacityPctLabel");
-  setEl("ctxLblFont", "font");
-  setEl("ctxLblSize", "size");
-  setEl("ctxLblColor", "ctxMenuColor");
-  setEl("ctxLblBg", "bg");
-  setEl("ctxLblShapeRotation", "ctxRotationDeg");
-  setEl("ctxLblShapeOpacity", "ctxOpacityPctLabel");
-  setEl("ctxLblShapeFill", "shapeFill");
-  setEl("ctxLblShapeFillOp", "shapeFillOp");
-  setEl("ctxLblShapeStroke", "shapeStroke");
-  setEl("ctxLblShapeStrokeOp", "shapeStrokeOp");
-  setEl("ctxLblShapeStrokeW", "ctxStrokeWidthPx");
-  setEl("ctxLblShapeBackdrop", "ctxShapeBackdropShort");
-  setEl("ctxLblShapeBackdropOp", "shapeBackdropOp");
-  setEl("ctxLblImageRotation", "ctxRotationDeg");
-  setEl("ctxLblImageOpacity", "ctxOpacityPctLabel");
-  const tbg = document.getElementById("ctxTextBgClear");
-  if (tbg) tbg.textContent = t("ctxTextBgClear");
-  setEl("ctxShapeFillClear", "ctxShapeFillClear");
-  setEl("ctxShapeStrokeClear", "ctxShapeStrokeClear");
-  setEl("ctxShapeBackdropClear", "ctxShapeBackdropClear");
-  if (blankAddTextBtn) blankAddTextBtn.textContent = `🔤 ${t("blankAddText")}`;
-  if (blankAddShapeBtn) blankAddShapeBtn.textContent = `🔷 ${t("blankAddShape")}`;
-  if (blankAddImageBtn) blankAddImageBtn.textContent = `🖼️ ${t("blankAddImage")}`;
-}
-
-function setLabelPrefix(inputId, value) {
-  const input = document.getElementById(inputId);
-  const label = input?.closest("label");
-  if (!label || !label.firstChild) return;
-  label.firstChild.nodeValue = `${value} `;
-}
-
-function applyLanguage() {
-  // Choix de langue via menu natif (Options > Langue) : pas de bouton "Langue" dans l'UI.
-  addTextBtn.textContent = t("addText");
-  addShapeBtn.textContent = t("addShape");
-  addImageBtn.textContent = t("addImage");
-  deleteSelectedBtn.textContent = t("del");
-  undoBtn.textContent = t("undo");
-  redoBtn.textContent = t("redo");
-  fitWidthBtn.textContent = t("fitW");
-  fitPageBtn.textContent = t("fitP");
-  applyPropsBtn.textContent = t("apply");
-  if (validateTextColorBtn) validateTextColorBtn.textContent = t("validate");
-  if (applyBgBtn) applyBgBtn.textContent = t("validate");
-  if (validateShapeFillBtn) validateShapeFillBtn.textContent = t("validate");
-  if (validateShapeStrokeBtn) validateShapeStrokeBtn.textContent = t("validate");
-  if (validateShapeBackdropBtn) validateShapeBackdropBtn.textContent = t("validate");
-  if (toolbarFileBtn) toolbarFileBtn.textContent = t("fileMenu");
-  if (toolbarOptionsBtn) toolbarOptionsBtn.textContent = t("optionsMenu");
-  if (menuLangLabel) menuLangLabel.textContent = t("menuLang");
-  if (menuToolsLabel) menuToolsLabel.textContent = t("menuTools");
-  if (menuInfoLabel) menuInfoLabel.textContent = t("menuInfo");
-  if (toolbarOpenPdfBtn) toolbarOpenPdfBtn.textContent = t("openPdf");
-  if (toolbarSaveAsBtn) toolbarSaveAsBtn.textContent = t("saveAs");
-  if (toolbarQuitBtn) toolbarQuitBtn.textContent = t("quit");
-  if (toolbarAboutMenuItem) toolbarAboutMenuItem.textContent = t("about");
-  if (toolbarSessionLogMenuItem) toolbarSessionLogMenuItem.textContent = t("menuSessionLog");
-  if (sessionLogTitleEl) sessionLogTitleEl.textContent = t("sessionLogTitle");
-  if (sessionLogHint) sessionLogHint.textContent = t("sessionLogHint");
-  if (thumbsTitle) thumbsTitle.textContent = t("thumbs");
-  if (changesTitle) changesTitle.textContent = t("changes");
-  if (prevBtn) prevBtn.textContent = t("prevPage");
-  if (nextBtn) nextBtn.textContent = t("nextPage");
-  try {
-    if (aboutRgpd) aboutRgpd.innerHTML = t("rgpdHtml");
-  } catch {}
-  try {
-    if (aboutTitleEl) aboutTitleEl.textContent = t("aboutTitle");
-    if (aboutCreditsEl) aboutCreditsEl.innerHTML = t("aboutCreditsHtml");
-  } catch {}
-  // Menu "Outils PDF" (barre Options).
-  try {
-    if (mergeBtn) mergeBtn.textContent = t("merge");
-    if (splitBtn) splitBtn.textContent = t("split");
-    if (compressBtn) compressBtn.textContent = t("compress");
-    if (protectBtn) protectBtn.textContent = t("protect");
-    if (unprotectBtn) unprotectBtn.textContent = t("unprotect");
-  } catch {}
-  // Nom produit / écran d'accueil.
-  try {
-    document.title = t("appName");
-    const at = document.getElementById("appTitle");
-    if (at) at.textContent = t("appName");
-    const wt = document.getElementById("welcomeTitle");
-    if (wt) wt.textContent = t("welcomeTitle");
-    const wsub = document.getElementById("welcomeSubtitle");
-    if (wsub) wsub.innerHTML = t("welcomeSubtitleHtml");
-  } catch {}
-  setLabelPrefix("propWidth", t("width"));
-  setLabelPrefix("propHeight", t("height"));
-  setLabelPrefix("propRotation", t("rotation"));
-  setLabelPrefix("propOpacity", t("opacity"));
-  setLabelPrefix("propTextColor", t("txt"));
-  setLabelPrefix("propBgColor", t("bg"));
-  try {
-    const propMarginsLabel = document.getElementById("propMarginsLabel");
-    if (propMarginsLabel) propMarginsLabel.textContent = t("propMargins");
-    const propFontFamilyLabel = document.getElementById("propFontFamilyLabel");
-    if (propFontFamilyLabel) propFontFamilyLabel.textContent = t("font");
-    const propFontSizeLabel = document.getElementById("propFontSizeLabel");
-    if (propFontSizeLabel) propFontSizeLabel.textContent = t("size");
-  } catch {
-    /* ignore */
-  }
-  const sfl = document.getElementById("shapeFillLabel");
-  const sfol = document.getElementById("shapeFillOpLabel");
-  const ssl = document.getElementById("shapeStrokeLabel");
-  const ssol = document.getElementById("shapeStrokeOpLabel");
-  const sswl = document.getElementById("shapeStrokeWLabel");
-  const sbd = document.getElementById("shapeBackdropLabel");
-  const sbdol = document.getElementById("shapeBackdropOpLabel");
-  if (sfl) sfl.textContent = t("shapeFill");
-  if (sfol) sfol.textContent = t("shapeFillOp");
-  if (ssl) ssl.textContent = t("shapeStroke");
-  if (ssol) ssol.textContent = t("shapeStrokeOp");
-  if (sswl) sswl.textContent = t("shapeStrokeW");
-  if (sbd) sbd.textContent = t("shapeBackdrop");
-  if (sbdol) sbdol.textContent = t("shapeBackdropOp");
-  if (!getActiveTab()) pageInfo.textContent = t("noPdf");
-  if (toolbarF10Hint) {
-    const hint = t("f10Toolbar");
-    toolbarF10Hint.textContent = hint;
-    toolbarF10Hint.title = hint;
-  }
-  try {
-    const st = document.getElementById("ctxSpellTitleEl");
-    if (st) st.textContent = t("ctxSpellTitle");
-    const wl = document.getElementById("ctxSpellWordLabel");
-    if (wl) wl.textContent = `${t("ctxSpellWord")} :`;
-    const ad = document.getElementById("ctxSpellAddDict");
-    if (ad) ad.textContent = t("ctxSpellAddDict");
-    const rd = document.getElementById("ctxSpellRemoveDict");
-    if (rd) rd.textContent = t("ctxSpellRemoveDict");
-  } catch {
-    /* ignore */
-  }
-  try {
-    applyContextMenusLanguage();
-  } catch {
-    /* ignore */
-  }
-  applyDataTooltipsFromMap();
-  applyShapeGridLanguage();
-  try {
-    const smt = document.getElementById("shapeModalTitleEl");
-    if (smt) smt.textContent = t("shapePickerTitle");
-    if (shapeModal) shapeModal.setAttribute("aria-label", t("shapeModalAria"));
-  } catch {
-    /* ignore */
-  }
-  try {
-    const swt = document.getElementById("splitWorkspaceTitle");
-    if (swt) swt.textContent = t("splitWorkspaceTitle");
-    const swh = document.getElementById("splitWorkspaceHint");
-    if (swh) swh.textContent = t("splitWorkspaceHint");
-    if (splitWorkspaceAddGroupBtn) splitWorkspaceAddGroupBtn.textContent = t("splitAddGroup");
-    if (splitWorkspaceValidateBtn) splitWorkspaceValidateBtn.textContent = t("splitValidate");
-    splitWorkspaceCloseBtn?.setAttribute("aria-label", t("closeAria"));
-  } catch {
-    /* ignore */
-  }
-  try {
-    const mct = document.getElementById("maniColorModalTitle");
-    if (mct) mct.textContent = t("maniColorTitle");
-    const mcv = document.getElementById("maniColorValidateBtn");
-    if (mcv) mcv.textContent = t("maniColorValidate");
-    const mce = document.getElementById("maniColorEyedropper");
-    if (mce) {
-      mce.setAttribute("title", t("maniColorEyedropper"));
-      mce.setAttribute("aria-label", t("maniColorEyedropper"));
-    }
-    document.getElementById("maniColorModalClose")?.setAttribute("aria-label", t("closeAria"));
-    document.querySelector("#maniColorModal .mani-color-rgb-grid")?.setAttribute("aria-label", t("maniColorRgbAria"));
-  } catch {
-    /* ignore */
-  }
-  try {
-    const del = document.getElementById("changesCtxDeleteBtn");
-    if (del) del.textContent = t("del");
-  } catch {
-    /* ignore */
-  }
-  try {
-    document.getElementById("ctxTextBold")?.setAttribute("title", t("ctxFmtBold"));
-    document.getElementById("ctxTextItalic")?.setAttribute("title", t("ctxFmtItalic"));
-    document.getElementById("ctxTextUnderline")?.setAttribute("title", t("ctxFmtUnderline"));
-  } catch {
-    /* ignore */
-  }
-  try {
-    thumbsBar?.setAttribute("aria-label", t("thumbs"));
-    changesBar?.setAttribute("aria-label", t("changes"));
-    document.querySelector(".workbench")?.setAttribute("aria-label", t("ariaWorkbench"));
-    document.querySelector(".status-pages")?.setAttribute("aria-label", t("ariaNavPages"));
-    document.querySelector(".status-zoom")?.setAttribute("aria-label", t("ariaZoom"));
-    appToolbar?.setAttribute("aria-label", t("ariaAppToolbar"));
-    aboutPopover?.setAttribute("aria-label", t("aboutTitle"));
-    toolbarAboutBtn?.setAttribute("aria-label", t("about"));
-    aboutCloseBtn?.setAttribute("aria-label", t("closeAria"));
-    closeShapeModalBtn?.setAttribute("aria-label", t("closeAria"));
-  } catch {
-    /* ignore */
-  }
-  try {
-    const tr = ensureToastRoot();
-    tr?.setAttribute?.("aria-label", t("toastAria"));
-  } catch {
-    /* ignore */
-  }
-  try {
-    pdfv.updateZoomUI();
-  } catch {
-    /* ignore */
-  }
-}
 
 function setLanguage(lang) {
   const next = String(lang || "fr").toLowerCase();
@@ -1095,7 +790,7 @@ function setLanguage(lang) {
   } catch {
     /* ignore */
   }
-  applyLanguage();
+  i18nApply.applyLanguage();
   applySpellcheckLanguageBestEffort();
   try {
     renderThumbnails();
@@ -2655,45 +2350,6 @@ async function savePdfAs() {
   setStatus(exportResult?.ok ? "PDF exporté." : exportResult?.error || "Export PDF échoué.");
 }
 
-function openSessionLogModal() {
-  if (!sessionLogModal || !sessionLogBody) return;
-  sessionLogBody.innerHTML = "";
-  const rows = sessionLog.getEntries();
-  if (!rows.length) {
-    const p = document.createElement("p");
-    p.className = "session-log-empty";
-    p.textContent = t("sessionLogEmpty");
-    sessionLogBody.appendChild(p);
-  } else {
-    for (const row of rows) {
-      const line = document.createElement("div");
-      line.className = "session-log-line";
-      const time = document.createElement("span");
-      time.className = "session-log-ts";
-      time.textContent = row.ts;
-      const msg = document.createElement("span");
-      msg.className = "session-log-msg";
-      msg.textContent = `[${row.category}] ${row.message}`;
-      line.appendChild(time);
-      line.appendChild(msg);
-      sessionLogBody.appendChild(line);
-    }
-  }
-  sessionLogModal.classList.remove("hidden");
-  sessionLogModal.setAttribute("aria-hidden", "false");
-  try {
-    sessionLogCloseBtn?.focus?.();
-  } catch {
-    /* ignore */
-  }
-}
-
-function closeSessionLogModal() {
-  if (!sessionLogModal) return;
-  sessionLogModal.classList.add("hidden");
-  sessionLogModal.setAttribute("aria-hidden", "true");
-}
-
 chrome.bind({
   blankCanvasCtxMenu,
   aboutPopover,
@@ -2726,28 +2382,76 @@ chrome.bind({
   logText
 });
 
-toolbarSessionLogMenuItem?.addEventListener?.("click", () => {
-  chrome.closeAllFlyoutMenus();
-  openSessionLogModal();
-});
-sessionLogCloseBtn?.addEventListener?.("click", () => {
-  closeSessionLogModal();
-});
-sessionLogModal?.querySelector?.("[data-session-log-dismiss]")?.addEventListener?.("click", () => {
-  closeSessionLogModal();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if (!sessionLogModal || sessionLogModal.classList.contains("hidden")) return;
-  closeSessionLogModal();
+sessionLogUi.bind({
+  sessionLogModal,
+  sessionLogBody,
+  sessionLogCloseBtn,
+  sessionLog,
+  t,
+  chrome,
+  toolbarSessionLogMenuItem
 });
 
-window.addEventListener("beforeunload", () => {
-  try {
-    sessionLog.clear();
-  } catch {
-    /* ignore */
-  }
+i18nApply.bind({
+  t,
+  getActiveTab,
+  pdfv,
+  ensureToastRoot,
+  shapeGrid,
+  blankAddTextBtn,
+  blankAddShapeBtn,
+  blankAddImageBtn,
+  addTextBtn,
+  addShapeBtn,
+  addImageBtn,
+  deleteSelectedBtn,
+  undoBtn,
+  redoBtn,
+  fitWidthBtn,
+  fitPageBtn,
+  applyPropsBtn,
+  validateTextColorBtn,
+  applyBgBtn,
+  validateShapeFillBtn,
+  validateShapeStrokeBtn,
+  validateShapeBackdropBtn,
+  toolbarFileBtn,
+  toolbarOptionsBtn,
+  menuLangLabel,
+  menuToolsLabel,
+  menuInfoLabel,
+  toolbarOpenPdfBtn,
+  toolbarSaveAsBtn,
+  toolbarQuitBtn,
+  toolbarAboutMenuItem,
+  toolbarSessionLogMenuItem,
+  sessionLogTitleEl,
+  sessionLogHint,
+  thumbsTitle,
+  changesTitle,
+  prevBtn,
+  nextBtn,
+  aboutRgpd,
+  aboutTitleEl,
+  aboutCreditsEl,
+  mergeBtn,
+  splitBtn,
+  compressBtn,
+  protectBtn,
+  unprotectBtn,
+  pageInfo,
+  toolbarF10Hint,
+  shapeModal,
+  splitWorkspaceAddGroupBtn,
+  splitWorkspaceValidateBtn,
+  splitWorkspaceCloseBtn,
+  thumbsBar,
+  changesBar,
+  appToolbar,
+  aboutPopover,
+  toolbarAboutBtn,
+  aboutCloseBtn,
+  closeShapeModalBtn
 });
 
 // Ouverture PDF via menu natif (File > Open PDF) et raccourci clavier (Ctrl+O).
@@ -3098,7 +2802,7 @@ try {
 } catch {
   /* ignore */
 }
-applyLanguage();
+i18nApply.applyLanguage();
 applySpellcheckLanguageBestEffort();
 tcm.wireTextAnnotationCtxMenu();
 document.addEventListener("selectionchange", () => {
@@ -3150,7 +2854,7 @@ try {
 try {
   window.maniPdfApi?.onSessionLogRequested?.(() => {
     chrome.closeAllFlyoutMenus();
-    openSessionLogModal();
+    sessionLogUi.open();
   });
 } catch {
   /* ignore */
@@ -3172,281 +2876,32 @@ setInterval(() => {
 
 // E2E helpers (best-effort, sans dépendance au main process)
 try {
-  window.__maniE2E = window.__maniE2E || {};
-  window.__maniE2E.resetUiState = () => {
-    try {
-      state.tabs = [];
-      state.activeTabId = null;
-      state.selectedAnnotationId = null;
-      state.editingAnnotationId = null;
-      cancelPointerInteraction();
-      if (pagesContainer) pagesContainer.innerHTML = "";
-      renderTabs();
-      pdfv.updateViewer();
-      updateWelcomeVisibility();
-      syncPropertyInputs();
-      setStatus(t("ready"));
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  window.__maniE2E.getUiState = () => {
-    try {
-      const tab = getActiveTab();
-      const page = String(tab?.currentPage || 1);
-      const annos = tab?.annotationsByPage?.[page] || [];
-      return {
-        activeTabId: state.activeTabId,
-        currentPage: tab?.currentPage || 1,
-        pageCount: tab?.pageCount ?? null,
-        selectedAnnotationId: state.selectedAnnotationId,
-        editingAnnotationId: state.editingAnnotationId,
-        clipboard: state.clipboard,
-        annotationsOnCurrentPageCount: annos.length
-      };
-    } catch {
-      return { error: true };
-    }
-  };
-  window.__maniE2E.setLanguage = (lang) => {
-    try {
-      setLanguage(String(lang || "fr"));
-      return state.language;
-    } catch {
-      return null;
-    }
-  };
-  window.__maniE2E.copySelected = () => {
-    try {
-      const tab = getActiveTab();
-      const item = getSelectedAnnotationFromActivePage(tab);
-      if (!tab || !item) return false;
-      const copy = cloneForClipboard(item);
-      if (!copy) return false;
-      state.clipboard = copy;
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  window.__maniE2E.cutSelected = () => {
-    try {
-      const tab = getActiveTab();
-      const annotations = tab ? currentPageAnnotations(tab) : null;
-      const item = getSelectedAnnotationFromActivePage(tab);
-      if (!tab || !annotations || !item) return false;
-      const cut = cloneForClipboard(item);
-      if (!cut) return false;
-      state.clipboard = cut;
-      const idx = annotations.findIndex((a) => a.id === item.id);
-      if (idx >= 0) {
-        captureSnapshot(tab);
-        annotations.splice(idx, 1);
-        state.selectedAnnotationId = null;
-        state.editingAnnotationId = null;
-        syncPropertyInputs();
-        renderAnnotations();
-        session.scheduleAutoSave();
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  window.__maniE2E.paste = () => {
-    try {
-      if (!state.clipboard) return false;
-      pasteClipboardIntoActivePage();
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  /** E2E uniquement : ajoute une forme sur la page active (meme pipeline que le modal). */
-  window.__maniE2E.injectShapeForTest = (shapeType) => {
-    try {
-      const tab = getActiveTab();
-      if (!tab) return null;
-      if (shapeType === "line") {
-        addAnnotation("line", { h: 20 });
-      } else if (SHAPE_TYPES.has(shapeType)) {
-        addAnnotation(shapeType);
-      } else {
-        return null;
-      }
-      return state.selectedAnnotationId;
-    } catch {
-      return null;
-    }
-  };
-  /** E2E uniquement : image PNG 1x1 par defaut si dataUrl omis. */
-  /**
-   * E2E : texte avec contenu initial (plain et/ou HTML).
-   * @param {{ plain?: string, textHtml?: string }} opts
-   */
-  window.__maniE2E.injectTextForTest = (opts) => {
-    try {
-      const tab = getActiveTab();
-      if (!tab) return null;
-      captureSnapshot(tab);
-      const annotations = currentPageAnnotations(tab);
-      const id = newAnnotationId();
-      const plain = opts?.plain != null ? String(opts.plain) : "hello";
-      const html = opts?.textHtml != null ? String(opts.textHtml).trim() : "";
-      const ann = {
-        id,
-        type: "text",
-        x: 100,
-        y: 100,
-        w: 260,
-        h: 100,
-        rotation: 0,
-        opacity: 100,
-        textColor: "#111111",
-        bgColor: null,
-        padding: 6,
-        fontFamily: "Arial",
-        fontSize: 14,
-        text: plain,
-        ...(html ? { textHtml: html } : {})
-      };
-      annotations.push(ann);
-      state.selectedAnnotationId = id;
-      state.editingAnnotationId = null;
-      syncPropertyInputs();
-      renderAnnotations();
-      session.scheduleAutoSave();
-      return id;
-    } catch {
-      return null;
-    }
-  };
-  /** E2E : applique Gras / Italique / Souligné au bloc (même chemin que le menu contextuel). */
-  window.__maniE2E.applyCtxFormatToSelectedText = (cmd) => {
-    try {
-      const id = state.selectedAnnotationId;
-      if (!id) return false;
-      tcm.setTextCtxMenuTargetId(id);
-      tcm.ctxMenuExecFormat(cmd);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  window.__maniE2E.injectImageForTest = (dataUrl) => {
-    try {
-      const tab = getActiveTab();
-      if (!tab) return null;
-      captureSnapshot(tab);
-      const annotations = currentPageAnnotations(tab);
-      const id = newAnnotationId();
-      const src =
-        dataUrl ||
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-      annotations.push({
-        id,
-        type: "image",
-        x: 130,
-        y: 130,
-        w: 100,
-        h: 75,
-        rotation: 11,
-        opacity: 92,
-        src,
-        fileName: "e2e.png"
-      });
-      state.selectedAnnotationId = id;
-      renderAnnotations();
-      session.scheduleAutoSave();
-      return id;
-    } catch {
-      return null;
-    }
-  };
-  /** E2E : désélectionne (pour tester clic droit sans sélection préalable). */
-  window.__maniE2E.clearSelectionForTest = () => {
-    try {
-      state.selectedAnnotationId = null;
-      state.editingAnnotationId = null;
-      syncPropertyInputs();
-      renderAnnotations();
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  window.__maniE2E.setAnnotationLogicalSizeForTest = (annotationId, w, h) => {
-    try {
-      const tab = getActiveTab();
-      if (!tab || !annotationId) return false;
-      const loc = findAnnotationLocation(tab, annotationId);
-      if (!loc?.item) return false;
-      const item = loc.item;
-      if (!SHAPE_TYPES.has(item.type)) return false;
-      captureSnapshot(tab);
-      item.w = Math.max(1, Math.floor(Number(w) || 1));
-      item.h = Math.max(1, Math.floor(Number(h) || 1));
-      fitAnnotationToSafeZone(item, getSafeZoneSize());
-      renderAnnotations();
-      session.scheduleAutoSave();
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  window.__maniE2E.getAnnotationProps = (annotationId) => {
-    try {
-      const tab = getActiveTab();
-      if (!tab || !annotationId) return null;
-      const loc = findAnnotationLocation(tab, annotationId);
-      if (!loc?.item) return null;
-      const a = loc.item;
-      const base = {
-        type: a.type,
-        rotation: a.rotation,
-        opacity: a.opacity,
-        w: a.w,
-        h: a.h
-      };
-      if (a.type === "text") {
-        return {
-          ...base,
-          text: a.text,
-          textHtml: a.textHtml ?? null,
-          textColor: a.textColor,
-          bgColor: a.bgColor ?? null
-        };
-      }
-      if (SHAPE_TYPES.has(a.type)) {
-        return {
-          ...base,
-          fillColor: a.fillColor,
-          strokeColor: a.strokeColor,
-          fillAlpha: a.fillAlpha,
-          strokeWidth: a.strokeWidth
-        };
-      }
-      return base;
-    } catch {
-      return null;
-    }
-  };
-  /** E2E : applique la couleur via le même pipeline que le nuancier (sans modale). */
-  window.__maniE2E.applyPanelColorForTest = (inputId, hex) => {
-    try {
-      const el = document.getElementById(inputId);
-      if (!el) return false;
-      el.value = String(hex || "").trim();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      if (typeof globalThis.maniAfterColorCommit === "function") {
-        globalThis.maniAfterColorCommit(el);
-      } else {
-        clickManiColorValidateButtonForInputId(inputId);
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  e2eHelpers.bind({
+    state,
+    getActiveTab,
+    cancelPointerInteraction,
+    pagesContainer,
+    renderTabs,
+    pdfv,
+    updateWelcomeVisibility,
+    syncPropertyInputs,
+    setStatus,
+    t,
+    cloneForClipboard,
+    getSelectedAnnotationFromActivePage,
+    currentPageAnnotations,
+    captureSnapshot,
+    renderAnnotations,
+    session,
+    addAnnotation,
+    SHAPE_TYPES,
+    newAnnotationId,
+    findAnnotationLocation,
+    fitAnnotationToSafeZone,
+    getSafeZoneSize,
+    tcm,
+    pasteClipboardIntoActivePage,
+    clickManiColorValidateButtonForInputId,
+    setLanguage
+  });
 } catch {}

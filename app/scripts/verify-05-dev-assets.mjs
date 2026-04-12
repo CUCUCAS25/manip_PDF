@@ -1,6 +1,6 @@
 /**
  * Vérifications statiques alignées sur docs/05-Dev.md (sans Electron).
- * - Ordre : i18n-data → text-html → text-ctx → utils → toast → session-log-store → session-log → sidebars → text-ctx-menu → shape-image-ctx-menu → split-workspace → jobs → app-chrome → tooltips → session → pdf-viewer → renderer.js
+ * - Ordre : i18n-data → … → pdf-viewer → i18n-apply → e2e-helpers → renderer.js
  * - Présence des dictionnaires i18n (fr, en, es, pt)
  */
 import fs from "fs";
@@ -30,6 +30,7 @@ const idxUtils = srcs.findIndex((s) => rel(s) === "renderer-utils.js");
 const idxToast = srcs.findIndex((s) => rel(s) === "renderer-toast.js");
 const idxSessionLogStore = srcs.findIndex((s) => rel(s) === "../lib/session-log-store.js");
 const idxSessionLog = srcs.findIndex((s) => rel(s) === "renderer-session-log.js");
+const idxSessionLogUi = srcs.findIndex((s) => rel(s) === "renderer-session-log-ui.js");
 const idxSidebars = srcs.findIndex((s) => rel(s) === "renderer-sidebars.js");
 const idxTextCtxMenu = srcs.findIndex((s) => rel(s) === "renderer-text-ctx-menu.js");
 const idxShapeImageCtxMenu = srcs.findIndex((s) => rel(s) === "renderer-shape-image-ctx-menu.js");
@@ -39,6 +40,8 @@ const idxAppChrome = srcs.findIndex((s) => rel(s) === "renderer-app-chrome.js");
 const idxTooltips = srcs.findIndex((s) => rel(s) === "renderer-tooltips.js");
 const idxSession = srcs.findIndex((s) => rel(s) === "renderer-session.js");
 const idxPdfViewer = srcs.findIndex((s) => rel(s) === "renderer-pdf-viewer.js");
+const idxI18nApply = srcs.findIndex((s) => rel(s) === "renderer-i18n-apply.js");
+const idxE2eHelpers = srcs.findIndex((s) => rel(s) === "renderer-e2e-helpers.js");
 const idxRenderer = srcs.findIndex((s) => rel(s) === "renderer.js");
 if (idxData === -1) fail("index.html : script renderer-i18n-data.js introuvable.");
 if (idxTextHtml === -1) fail("index.html : script renderer-text-html.js introuvable.");
@@ -47,6 +50,7 @@ if (idxUtils === -1) fail("index.html : script renderer-utils.js introuvable.");
 if (idxToast === -1) fail("index.html : script renderer-toast.js introuvable.");
 if (idxSessionLogStore === -1) fail("index.html : script ../lib/session-log-store.js introuvable.");
 if (idxSessionLog === -1) fail("index.html : script renderer-session-log.js introuvable.");
+if (idxSessionLogUi === -1) fail("index.html : script renderer-session-log-ui.js introuvable.");
 if (idxSidebars === -1) fail("index.html : script renderer-sidebars.js introuvable.");
 if (idxTextCtxMenu === -1) fail("index.html : script renderer-text-ctx-menu.js introuvable.");
 if (idxShapeImageCtxMenu === -1)
@@ -57,6 +61,8 @@ if (idxAppChrome === -1) fail("index.html : script renderer-app-chrome.js introu
 if (idxTooltips === -1) fail("index.html : script renderer-tooltips.js introuvable.");
 if (idxSession === -1) fail("index.html : script renderer-session.js introuvable.");
 if (idxPdfViewer === -1) fail("index.html : script renderer-pdf-viewer.js introuvable.");
+if (idxI18nApply === -1) fail("index.html : script renderer-i18n-apply.js introuvable.");
+if (idxE2eHelpers === -1) fail("index.html : script renderer-e2e-helpers.js introuvable.");
 if (idxRenderer === -1) fail("index.html : script renderer.js introuvable.");
 if (
   idxData >= idxTextHtml ||
@@ -65,7 +71,8 @@ if (
   idxUtils >= idxToast ||
   idxToast >= idxSessionLogStore ||
   idxSessionLogStore >= idxSessionLog ||
-  idxSessionLog >= idxSidebars ||
+  idxSessionLog >= idxSessionLogUi ||
+  idxSessionLogUi >= idxSidebars ||
   idxSidebars >= idxTextCtxMenu ||
   idxTextCtxMenu >= idxShapeImageCtxMenu ||
   idxShapeImageCtxMenu >= idxSplitWorkspace ||
@@ -74,7 +81,9 @@ if (
   idxAppChrome >= idxTooltips ||
   idxTooltips >= idxSession ||
   idxSession >= idxPdfViewer ||
-  idxPdfViewer >= idxRenderer
+  idxPdfViewer >= idxI18nApply ||
+  idxI18nApply >= idxE2eHelpers ||
+  idxE2eHelpers >= idxRenderer
 ) {
   fail(
     "index.html : ordre attendu … → text-ctx → utils → toast → sidebars → text-ctx-menu → shape-image-ctx-menu → split-workspace → jobs → app-chrome → tooltips → session → pdf-viewer → renderer.js."

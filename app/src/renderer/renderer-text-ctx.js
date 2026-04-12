@@ -85,8 +85,60 @@
     );
   }
 
+  /**
+   * Gras / italique / souligné au caractère `charIndex` (repère plain, aligné sur getTextBoundaryInRoot).
+   */
+  function getFormatFlagsAtPlainIndex(ed, charIndex) {
+    if (!ed || charIndex < 0) {
+      return { bold: false, italic: false, underline: false };
+    }
+    let boundary = getTextBoundaryInRoot(ed, charIndex);
+    if (boundary && boundary.node.nodeType === Node.TEXT_NODE) {
+      return {
+        bold: textNodeFormatHit(boundary.node, ed, "bold"),
+        italic: textNodeFormatHit(boundary.node, ed, "italic"),
+        underline: textNodeFormatHit(boundary.node, ed, "underline")
+      };
+    }
+    if (charIndex > 0) {
+      boundary = getTextBoundaryInRoot(ed, charIndex - 1);
+      if (boundary && boundary.node.nodeType === Node.TEXT_NODE) {
+        return {
+          bold: textNodeFormatHit(boundary.node, ed, "bold"),
+          italic: textNodeFormatHit(boundary.node, ed, "italic"),
+          underline: textNodeFormatHit(boundary.node, ed, "underline")
+        };
+      }
+    }
+    return { bold: false, italic: false, underline: false };
+  }
+
+  /**
+   * Enveloppe le texte de remplacement pour conserver b / i / u (ordre ext. → int. : b > i > u).
+   */
+  function wrapReplacementWithFormatNodes(replacement, flags) {
+    let node = /** @type {Node} */ (document.createTextNode(replacement));
+    if (flags.underline) {
+      const u = document.createElement("u");
+      u.appendChild(node);
+      node = u;
+    }
+    if (flags.italic) {
+      const i = document.createElement("i");
+      i.appendChild(node);
+      node = i;
+    }
+    if (flags.bold) {
+      const b = document.createElement("b");
+      b.appendChild(node);
+      node = b;
+    }
+    return node;
+  }
+
   function replacePlainTextRangeInEditor(ed, start, end, replacement) {
     if (!ed || start < 0 || end <= start) return false;
+    const fmt = getFormatFlagsAtPlainIndex(ed, start);
     const a = getTextBoundaryInRoot(ed, start);
     const b = getTextBoundaryInRoot(ed, end);
     if (!a || !b) return false;
@@ -98,13 +150,26 @@
       return false;
     }
     range.deleteContents();
-    range.insertNode(document.createTextNode(replacement));
+    range.insertNode(wrapReplacementWithFormatNodes(replacement, fmt));
     return true;
   }
 
   function replacePlainRangeInTextItem(item, start, end, replacement) {
     const plain = plainTextForAnnotationItem(item);
     if (start < 0 || end > plain.length) return false;
+    const html = item.textHtml && String(item.textHtml).trim();
+    if (html) {
+      const div = document.createElement("div");
+      div.innerHTML = sanitizeTextHtml(item.textHtml);
+      if (replacePlainTextRangeInEditor(div, start, end, replacement)) {
+        item.textHtml = sanitizeTextHtml(div.innerHTML);
+        const r = document.createRange();
+        r.selectNodeContents(div);
+        item.text = String(r.toString() || "").replace(/\r\n/g, "\n");
+        delete item._spellErrors;
+        return true;
+      }
+    }
     const next = plain.slice(0, start) + replacement + plain.slice(end);
     item.text = next;
     delete item.textHtml;
