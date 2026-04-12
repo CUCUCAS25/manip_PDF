@@ -4,6 +4,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const { log } = require("./logger");
+const spellcheckService = require("./spellcheck-service");
 
 // Ensure logs go to project root by default.
 // (Logger also has its own default, but this makes it explicit.)
@@ -731,6 +732,81 @@ ipcMain.handle("spellcheck:set-languages", async (_, input) => {
     return { ok: true, languages: langs };
   } catch (e) {
     return { ok: false, error: "Impossible d'appliquer la langue du correcteur." };
+  }
+});
+
+ipcMain.handle("spellcheck:analyze", async (_, payload) => {
+  const langRaw = payload?.lang;
+  const text = payload?.text != null ? String(payload.text) : "";
+  const lang =
+    normalizeSpellcheckLanguage(langRaw) || normalizeSpellcheckLanguage("fr") || "fr-FR";
+  try {
+    const spell = await spellcheckService.getSpell(lang);
+    if (!spell) {
+      console.error("[spellcheck] analyze: moteur indisponible (dictionnaire non chargé)", {
+        lang,
+        textLen: text.length
+      });
+      return { ok: false, errors: [], reason: "no-dict" };
+    }
+    const ses = mainWindow?.webContents?.session;
+    if (ses?.listWordsInSpellCheckerDictionary) {
+      try {
+        const words = await ses.listWordsInSpellCheckerDictionary();
+        spellcheckService.mergePersonalWords(spell, words);
+      } catch {
+        /* ignore */
+      }
+    }
+    const errors = spellcheckService.findMisspellings(spell, text);
+    return { ok: true, errors };
+  } catch (e) {
+    log("spellcheck", "analyze failed", { message: e?.message });
+    console.error("[spellcheck] analyze: exception", e?.message || e);
+    return { ok: false, errors: [], reason: "exception" };
+  }
+});
+
+ipcMain.handle("spellcheck:add-word", async (_, payload) => {
+  const w = String(payload?.word || "").trim();
+  if (!w) return { ok: false };
+  const ses = mainWindow?.webContents?.session;
+  if (!ses?.addWordToSpellCheckerDictionary) return { ok: false };
+  try {
+    const ok = ses.addWordToSpellCheckerDictionary(w);
+    spellcheckService.invalidateAll();
+    return { ok: Boolean(ok) };
+  } catch {
+    return { ok: false };
+  }
+});
+
+ipcMain.handle("spellcheck:remove-word", async (_, payload) => {
+  const w = String(payload?.word || "").trim();
+  if (!w) return { ok: false };
+  const ses = mainWindow?.webContents?.session;
+  if (!ses?.removeWordFromSpellCheckerDictionary) return { ok: false };
+  try {
+    const ok = ses.removeWordFromSpellCheckerDictionary(w);
+    spellcheckService.invalidateAll();
+    return { ok: Boolean(ok) };
+  } catch {
+    return { ok: false };
+  }
+});
+
+ipcMain.handle("spellcheck:is-custom-word", async (_, payload) => {
+  const w = String(payload?.word || "").trim();
+  if (!w) return { ok: false, inDictionary: false };
+  const ses = mainWindow?.webContents?.session;
+  if (!ses?.listWordsInSpellCheckerDictionary) return { ok: false, inDictionary: false };
+  try {
+    const words = await ses.listWordsInSpellCheckerDictionary();
+    const lower = w.toLowerCase();
+    const inDictionary = words.some((x) => String(x).toLowerCase() === lower);
+    return { ok: true, inDictionary };
+  } catch {
+    return { ok: false, inDictionary: false };
   }
 });
 

@@ -8,6 +8,7 @@
     "dev": "electron .",
     "start": "electron .",
     "test": "python -m unittest discover -s python/tests -p \"test_*.py\"",
+    "test:spell": "node scripts/spellcheck-smoke.mjs",
     "e2e": "playwright test",
     "build": "electron-builder --dir",
     "dist": "electron-builder"
@@ -41,6 +42,11 @@
     }
   },
   "dependencies": {
+    "dictionary-en": "^4.0.0",
+    "dictionary-es": "^4.0.0",
+    "dictionary-fr": "^3.0.0",
+    "dictionary-pt-br": "^3.0.0",
+    "nspell": "^2.1.5",
     "pdfjs-dist": "^5.6.205"
   }
 }

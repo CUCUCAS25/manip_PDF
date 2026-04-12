@@ -443,6 +443,302 @@ label.color-field.is-transparent input[type="color"] {
   background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
 }
 
+.color-row label,
+label.color-field,
+.text-ctx-row.ctx-color-row label {
+  position: relative;
+}
+
+label.color-field input[type="hidden"],
+.color-row label input[type="hidden"],
+.text-ctx-row label input[type="hidden"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+button.mani-color-swatch {
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #bdbdbd;
+  border-radius: 4px;
+  vertical-align: middle;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+label.color-field.is-transparent button.mani-color-swatch.mani-swatch-transparent-bg,
+#ctxTextBgLabel.is-transparent button.mani-color-swatch.mani-swatch-transparent-bg {
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.12) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.12) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+}
+
+/* Modale couleur unifiée — z-index au-dessus des menus contextuels (.text-ctx-menu ~ 100002) */
+.mani-color-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 110000;
+  pointer-events: none;
+}
+
+.mani-color-modal.hidden {
+  display: none;
+}
+
+.mani-color-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  z-index: 0;
+}
+
+.mani-color-modal-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  pointer-events: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  padding: 16px;
+  min-width: 320px;
+}
+
+.mani-color-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mani-drag-handle {
+  cursor: grab;
+  user-select: none;
+}
+
+.mani-drag-handle:active {
+  cursor: grabbing;
+}
+
+.mani-color-modal-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mani-color-sv {
+  display: block;
+  width: 280px;
+  height: 200px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  cursor: crosshair;
+}
+
+.mani-color-hue-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.mani-color-eyedrop {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #fafafa;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+}
+
+.mani-color-preview {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
+.mani-color-hue {
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  border-radius: 7px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 16.66%,
+    #0f0 33.33%,
+    #0ff 50%,
+    #00f 66.66%,
+    #f0f 83.33%,
+    #f00 100%
+  );
+  outline: none;
+}
+
+.mani-color-hue::-webkit-slider-runnable-track {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 16.66%,
+    #0f0 33.33%,
+    #0ff 50%,
+    #00f 66.66%,
+    #f0f 83.33%,
+    #f00 100%
+  );
+}
+
+.mani-color-hue::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.mani-color-hue::-moz-range-track {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 16.66%,
+    #0f0 33.33%,
+    #0ff 50%,
+    #00f 66.66%,
+    #f0f 83.33%,
+    #f00 100%
+  );
+}
+
+.mani-color-hue::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+/* Grille : ligne 1 = champs R G B ; ligne 2 = Valider à gauche, libellés R G B sous les champs */
+.mani-color-rgb-grid {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) repeat(3, minmax(52px, 1fr));
+  grid-template-rows: auto auto;
+  gap: 6px 10px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.mani-color-rgb-grid-corner {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 8px;
+}
+
+.mani-color-rgb-grid #maniColorR {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.mani-color-rgb-grid #maniColorG {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.mani-color-rgb-grid #maniColorB {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.mani-color-rgb-grid #maniColorValidateBtn {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  align-self: center;
+}
+
+.mani-color-rgb-grid > span.mani-color-rgb-lbl:nth-child(6) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.mani-color-rgb-grid > span.mani-color-rgb-lbl:nth-child(7) {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.mani-color-rgb-grid > span.mani-color-rgb-lbl:nth-child(8) {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.mani-color-rgb-lbl {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+
+.mani-color-rgb-field {
+  width: 100%;
+  max-width: 72px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.mani-color-validate {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.mani-color-validate:hover {
+  background: #eaf4ff;
+  border-color: #8bb7da;
+}
+
+.text-ctx-row .mani-color-swatch {
+  width: 38px;
+  height: 22px;
+  margin-left: 4px;
+}
+
+.shape-props-panel .mani-color-swatch {
+  margin-left: 4px;
+}
+
 .actions label {
   font-size: 12px;
 }
@@ -946,6 +1242,76 @@ body.dnd-active #annotationLayer {
   text-decoration: underline;
 }
 
+/* Gras / italique / souligné : états (aucun / partiel / tout le texte) */
+.text-ctx-fmt.fmt-state-none {
+  background: #fafafa;
+}
+.text-ctx-fmt.fmt-state-partial {
+  background: #e4e4e4;
+  color: #333;
+}
+.text-ctx-fmt.fmt-state-full {
+  background: #9e9e9e;
+  color: #111;
+}
+
+.ctx-spell-block {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 280px;
+}
+.ctx-spell-status {
+  font-size: 11px;
+  color: #555;
+  min-height: 1.2em;
+}
+.ctx-spell-word-row {
+  font-size: 12px;
+}
+.ctx-spell-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.ctx-spell-sug-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #444;
+  margin-bottom: 2px;
+}
+.ctx-spell-suggestions button {
+  text-align: left;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+.ctx-spell-suggestions button:hover {
+  background: #eef6ff;
+}
+.ctx-spell-dict-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.annotation.text[data-spell-issues]:not(.editing) {
+  box-shadow: inset 0 -2px 0 0 rgba(200, 40, 40, 0.45);
+}
+
+.mani-spell-miss {
+  text-decoration: underline wavy #c62828;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
 .annotation.shape-vector {
   background: transparent !important;
   border: none !important;
@@ -968,6 +1334,17 @@ body.dnd-active #annotationLayer {
 }
 .annotation.shape-vector .shape-svg {
   z-index: 1;
+}
+
+/* Les règles .annotation.rect / .ellipse / … imposent encore min-width/min-height (~90×60).
+   Les formes vectorielles (SVG via .shape-vector) doivent suivre la taille logique w/h (jusqu’à 1×1),
+   comme l’étoile qui n’a pas ces min hérités du rendu « ancien » clip-path. */
+.annotation.rect.shape-vector,
+.annotation.ellipse.shape-vector,
+.annotation.triangle.shape-vector,
+.annotation.line.shape-vector {
+  min-width: 0;
+  min-height: 0;
 }
 
 .annotation.rect {

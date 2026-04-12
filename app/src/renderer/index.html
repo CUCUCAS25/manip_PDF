@@ -92,18 +92,30 @@
 
         <div id="shapePropsPanel" class="shape-props-panel hidden" aria-label="Proprietes de la forme selectionnee">
           <div class="color-row">
-            <label><span id="shapeFillLabel">Remplissage</span> <input id="propShapeFill" type="color" value="#ffd700" /></label>
+            <label
+              ><span id="shapeFillLabel">Remplissage</span>
+              <input id="propShapeFill" type="hidden" value="#ffd700" />
+              <button type="button" class="mani-color-swatch" data-mani-color-for="propShapeFill" aria-label="Remplissage"></button>
+            </label>
             <button id="validateShapeFillBtn" type="button" class="color-validate">✅ Valider</button>
           </div>
           <label><span id="shapeFillOpLabel">Opacite remplissage (%)</span> <input id="propShapeFillOpacity" type="number" min="0" max="100" value="30" /></label>
           <div class="color-row">
-            <label><span id="shapeStrokeLabel">Contour</span> <input id="propShapeStroke" type="color" value="#d4a017" /></label>
+            <label
+              ><span id="shapeStrokeLabel">Contour</span>
+              <input id="propShapeStroke" type="hidden" value="#d4a017" />
+              <button type="button" class="mani-color-swatch" data-mani-color-for="propShapeStroke" aria-label="Contour"></button>
+            </label>
             <button id="validateShapeStrokeBtn" type="button" class="color-validate">✅ Valider</button>
           </div>
           <label><span id="shapeStrokeOpLabel">Opacite contour (%)</span> <input id="propShapeStrokeOpacity" type="number" min="0" max="100" value="100" /></label>
           <label><span id="shapeStrokeWLabel">Epaisseur contour (px)</span> <input id="propShapeStrokeWidth" type="number" min="0" max="24" value="0" /></label>
           <div class="color-row">
-            <label><span id="shapeBackdropLabel">Fond derriere la forme</span> <input id="propShapeBackdrop" type="color" value="#ffffff" /></label>
+            <label
+              ><span id="shapeBackdropLabel">Fond derriere la forme</span>
+              <input id="propShapeBackdrop" type="hidden" value="#ffffff" />
+              <button type="button" class="mani-color-swatch" data-mani-color-for="propShapeBackdrop" aria-label="Fond derriere la forme"></button>
+            </label>
             <button id="validateShapeBackdropBtn" type="button" class="color-validate">✅ Valider</button>
           </div>
           <label><span id="shapeBackdropOpLabel">Opacite fond (%)</span> <input id="propShapeBackdropOpacity" type="number" min="0" max="100" value="0" /></label>
@@ -116,15 +128,24 @@
       </div>
       <div id="textPropsPanel" class="text-props-panel hidden" aria-label="Propriétés du champ texte sélectionné">
         <div class="color-row">
-          <label class="color-field" id="propTextColorLabel">Txt <input id="propTextColor" type="color" value="#111111" /></label>
+          <label class="color-field" id="propTextColorLabel"
+            >Txt
+            <input id="propTextColor" type="hidden" value="#111111" />
+            <button type="button" class="mani-color-swatch" data-mani-color-for="propTextColor" aria-label="Couleur du texte"></button>
+          </label>
           <button id="validateTextColorBtn" type="button" class="color-validate" data-tooltip="Applique la couleur de texte sélectionnée.">✅ Valider</button>
         </div>
         <div class="color-row">
-          <label class="color-field is-transparent" id="propBgColorLabel">Fond <input id="propBgColor" type="color" value="#ffffff" /></label>
+          <label class="color-field is-transparent" id="propBgColorLabel"
+            >Fond
+            <input id="propBgColor" type="hidden" value="#ffffff" />
+            <button type="button" class="mani-color-swatch" data-mani-color-for="propBgColor" aria-label="Couleur de fond"></button>
+          </label>
           <button id="applyBgBtn" type="button" class="color-validate" data-tooltip="Applique la couleur de fond sélectionnée.">✅ Valider</button>
         </div>
-        <label>Marges <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
-        <label>Police
+        <label><span id="propMarginsLabel">Marges</span> <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
+        <label
+          ><span id="propFontFamilyLabel">Police</span>
           <select id="propFontFamily">
             <option value="Arial" selected>Arial</option>
             <option value="Times New Roman">Times New Roman</option>
@@ -132,7 +153,7 @@
             <option value="Georgia">Georgia</option>
           </select>
         </label>
-        <label>Taille <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
+        <label><span id="propFontSizeLabel">Taille</span> <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
         <button id="applyPropsBtn" data-tooltip="Applique les propriétés au champ texte sélectionné.">✅ Appliquer</button>
       </div>
     </header>
@@ -192,7 +213,7 @@
             ✖
           </button>
         </div>
-        <p class="split-workspace-hint">
+        <p id="splitWorkspaceHint" class="split-workspace-hint">
           Miniatures par page. Glissez entre les groupes (Shift / Ctrl pour la sélection). Valider pour créer un PDF par
           groupe. Brouillon enregistré automatiquement.
         </p>
@@ -209,8 +230,8 @@
     <div id="shapeModal" class="shape-modal hidden" role="dialog" aria-modal="true" aria-label="Choix de forme">
       <div class="shape-modal-content">
         <div class="shape-modal-header">
-          <strong>Choisir une forme</strong>
-          <button id="closeShapeModalBtn" type="button">✖</button>
+          <strong id="shapeModalTitleEl">Choisir une forme</strong>
+          <button id="closeShapeModalBtn" type="button" aria-label="Fermer">✖</button>
         </div>
         <div id="shapeGrid" class="shape-grid">
           <button type="button" data-shape="rect">⬛ Rectangle</button>
@@ -232,66 +253,126 @@
     </div>
 
     <div id="textAnnotationCtxMenu" class="text-ctx-menu hidden" role="menu" aria-label="Menu texte">
-      <div class="text-ctx-menu-title">Texte</div>
+      <div id="ctxTextMenuTitle" class="text-ctx-menu-title">Texte</div>
       <label class="text-ctx-row"><span id="ctxLblTextRotation">Rotation (°)</span> <input id="ctxTextRotation" type="number" min="0" max="360" value="0" /></label>
       <label class="text-ctx-row"><span id="ctxLblTextOpacity">Opacite (%)</span> <input id="ctxTextOpacity" type="number" min="0" max="100" value="100" /></label>
       <label class="text-ctx-row"><span id="ctxLblFont">Police</span> <select id="ctxTextFont"></select></label>
       <label class="text-ctx-row"><span id="ctxLblSize">Taille</span> <input id="ctxTextSize" type="number" min="8" max="96" value="14" /></label>
       <div class="text-ctx-row ctx-color-row">
-        <label><span id="ctxLblColor">Couleur</span> <input id="ctxTextColor" type="color" value="#111111" /></label>
+        <label
+          ><span id="ctxLblColor">Couleur</span>
+          <input id="ctxTextColor" type="hidden" value="#111111" />
+          <button type="button" class="mani-color-swatch" data-mani-color-for="ctxTextColor" aria-label="Couleur"></button>
+        </label>
         <button type="button" id="ctxValidateTextColorBtn" class="text-ctx-validate">✅</button>
       </div>
       <div class="text-ctx-row ctx-color-row" id="ctxTextBgLabel">
-        <label><span id="ctxLblBg">Fond</span> <input id="ctxTextBg" type="color" value="#ffffff" /></label>
+        <label
+          ><span id="ctxLblBg">Fond</span>
+          <input id="ctxTextBg" type="hidden" value="#ffffff" />
+          <button type="button" class="mani-color-swatch" data-mani-color-for="ctxTextBg" aria-label="Fond"></button>
+        </label>
         <button type="button" id="ctxValidateTextBgBtn" class="text-ctx-validate">✅</button>
       </div>
       <button type="button" id="ctxTextBgClear" class="text-ctx-clear">Fond transparent</button>
       <div class="text-ctx-format">
-        <button type="button" id="ctxTextBold" class="text-ctx-fmt text-ctx-fmt-bold" data-cmd="bold" title="Gras"><strong>G</strong></button>
-        <button type="button" id="ctxTextItalic" class="text-ctx-fmt text-ctx-fmt-italic" data-cmd="italic" title="Italique"><em>I</em></button>
-        <button type="button" id="ctxTextUnderline" class="text-ctx-fmt text-ctx-fmt-underline" data-cmd="underline" title="Souligné"><span class="text-ctx-u">S</span></button>
+        <button type="button" id="ctxTextBold" class="text-ctx-fmt text-ctx-fmt-bold fmt-state-none" data-cmd="bold" title="Gras"><strong>G</strong></button>
+        <button type="button" id="ctxTextItalic" class="text-ctx-fmt text-ctx-fmt-italic fmt-state-none" data-cmd="italic" title="Italique"><em>I</em></button>
+        <button type="button" id="ctxTextUnderline" class="text-ctx-fmt text-ctx-fmt-underline fmt-state-none" data-cmd="underline" title="Souligné"><span class="text-ctx-u">S</span></button>
+      </div>
+      <div id="ctxSpellBlock" class="ctx-spell-block">
+        <div class="text-ctx-menu-title" id="ctxSpellTitleEl">Orthographe</div>
+        <div id="ctxSpellStatus" class="ctx-spell-status" aria-live="polite"></div>
+        <div id="ctxSpellWordRow" class="ctx-spell-word-row hidden">
+          <span id="ctxSpellWordLabel"></span> <strong id="ctxSpellWordValue"></strong>
+        </div>
+        <div id="ctxSpellSuggestions" class="ctx-spell-suggestions"></div>
+        <div class="ctx-spell-dict-row">
+          <button type="button" id="ctxSpellAddDict" class="text-ctx-clear hidden">Ajouter au dictionnaire</button>
+          <button type="button" id="ctxSpellRemoveDict" class="text-ctx-clear hidden">Retirer du dictionnaire</button>
+        </div>
       </div>
     </div>
 
     <div id="shapeAnnotationCtxMenu" class="text-ctx-menu hidden" role="menu" aria-label="Menu forme">
-      <div class="text-ctx-menu-title">Forme</div>
+      <div id="ctxShapeMenuTitle" class="text-ctx-menu-title">Forme</div>
       <label class="text-ctx-row"><span id="ctxLblShapeRotation">Rotation (°)</span> <input id="ctxShapeRotation" type="number" min="0" max="360" value="0" /></label>
       <label class="text-ctx-row"><span id="ctxLblShapeOpacity">Opacite (%)</span> <input id="ctxShapeOpacity" type="number" min="0" max="100" value="100" /></label>
       <div class="text-ctx-row ctx-color-row">
-        <label><span>Remplissage</span> <input id="ctxShapeFill" type="color" value="#ffd700" /></label>
+        <label
+          ><span id="ctxLblShapeFill">Remplissage</span>
+          <input id="ctxShapeFill" type="hidden" value="#ffd700" />
+          <button type="button" class="mani-color-swatch" data-mani-color-for="ctxShapeFill" aria-label="Remplissage"></button>
+        </label>
         <button type="button" id="ctxValidateShapeFillBtn" class="text-ctx-validate">✅</button>
       </div>
-      <label class="text-ctx-row"><span>Opacite remplissage (%)</span> <input id="ctxShapeFillOp" type="number" min="0" max="100" value="30" /></label>
+      <label class="text-ctx-row"><span id="ctxLblShapeFillOp">Opacite remplissage (%)</span> <input id="ctxShapeFillOp" type="number" min="0" max="100" value="30" /></label>
       <button type="button" id="ctxShapeFillClear" class="text-ctx-clear">Remplissage transparent</button>
       <div class="text-ctx-row ctx-color-row">
-        <label><span>Contour</span> <input id="ctxShapeStroke" type="color" value="#333333" /></label>
+        <label
+          ><span id="ctxLblShapeStroke">Contour</span>
+          <input id="ctxShapeStroke" type="hidden" value="#333333" />
+          <button type="button" class="mani-color-swatch" data-mani-color-for="ctxShapeStroke" aria-label="Contour"></button>
+        </label>
         <button type="button" id="ctxValidateShapeStrokeBtn" class="text-ctx-validate">✅</button>
       </div>
-      <label class="text-ctx-row"><span>Opacite contour (%)</span> <input id="ctxShapeStrokeOp" type="number" min="0" max="100" value="100" /></label>
-      <label class="text-ctx-row"><span>Epaisseur (px)</span> <input id="ctxShapeStrokeW" type="number" min="0" max="24" value="0" /></label>
+      <label class="text-ctx-row"><span id="ctxLblShapeStrokeOp">Opacite contour (%)</span> <input id="ctxShapeStrokeOp" type="number" min="0" max="100" value="100" /></label>
+      <label class="text-ctx-row"><span id="ctxLblShapeStrokeW">Epaisseur (px)</span> <input id="ctxShapeStrokeW" type="number" min="0" max="24" value="0" /></label>
       <button type="button" id="ctxShapeStrokeClear" class="text-ctx-clear">Contour transparent</button>
       <div class="text-ctx-row ctx-color-row">
-        <label><span>Fond derriere</span> <input id="ctxShapeBackdrop" type="color" value="#ffffff" /></label>
+        <label
+          ><span id="ctxLblShapeBackdrop">Fond derriere</span>
+          <input id="ctxShapeBackdrop" type="hidden" value="#ffffff" />
+          <button type="button" class="mani-color-swatch" data-mani-color-for="ctxShapeBackdrop" aria-label="Fond derriere"></button>
+        </label>
         <button type="button" id="ctxValidateShapeBackdropBtn" class="text-ctx-validate">✅</button>
       </div>
-      <label class="text-ctx-row"><span>Opacite fond (%)</span> <input id="ctxShapeBackdropOp" type="number" min="0" max="100" value="0" /></label>
+      <label class="text-ctx-row"><span id="ctxLblShapeBackdropOp">Opacite fond (%)</span> <input id="ctxShapeBackdropOp" type="number" min="0" max="100" value="0" /></label>
       <button type="button" id="ctxShapeBackdropClear" class="text-ctx-clear">Fond transparent</button>
     </div>
 
     <div id="imageAnnotationCtxMenu" class="text-ctx-menu hidden" role="menu" aria-label="Menu image">
-      <div class="text-ctx-menu-title">Image</div>
+      <div id="ctxImageMenuTitle" class="text-ctx-menu-title">Image</div>
       <label class="text-ctx-row"><span id="ctxLblImageRotation">Rotation (°)</span> <input id="ctxImageRotation" type="number" min="0" max="360" value="0" /></label>
       <label class="text-ctx-row"><span id="ctxLblImageOpacity">Opacite (%)</span> <input id="ctxImageOpacity" type="number" min="0" max="100" value="100" /></label>
     </div>
 
     <div id="blankCanvasCtxMenu" class="text-ctx-menu hidden" role="menu" aria-label="Ajouts rapides">
-      <div class="text-ctx-menu-title">Ajouter</div>
+      <div id="blankCanvasMenuTitle" class="text-ctx-menu-title">Ajouter</div>
       <button type="button" id="blankAddTextBtn" class="text-ctx-clear" role="menuitem">🔤 Ajouter texte</button>
       <button type="button" id="blankAddShapeBtn" class="text-ctx-clear" role="menuitem">🔷 Ajouter forme</button>
       <button type="button" id="blankAddImageBtn" class="text-ctx-clear" role="menuitem">🖼️ Ajouter image</button>
     </div>
 
+    <div id="maniColorModal" class="mani-color-modal hidden" role="dialog" aria-modal="true" aria-labelledby="maniColorModalTitle" aria-hidden="true">
+      <div class="mani-color-modal-backdrop" data-mani-color-dismiss tabindex="-1"></div>
+      <div class="mani-color-modal-panel">
+        <div class="mani-color-modal-header">
+          <strong id="maniColorModalTitle">Couleur</strong>
+          <button type="button" id="maniColorModalClose" class="mani-color-modal-close" aria-label="Fermer">✖</button>
+        </div>
+        <canvas id="maniColorSvCanvas" class="mani-color-sv" width="280" height="200"></canvas>
+        <div class="mani-color-hue-row">
+          <button type="button" id="maniColorEyedropper" class="mani-color-eyedrop" title="Pipette">🎨</button>
+          <div id="maniColorPreview" class="mani-color-preview"></div>
+          <input type="range" id="maniColorHue" class="mani-color-hue" min="0" max="360" value="0" />
+        </div>
+        <div class="mani-color-rgb-grid" aria-label="Valeurs RGB">
+          <div class="mani-color-rgb-grid-corner" aria-hidden="true"></div>
+          <input type="number" id="maniColorR" min="0" max="255" class="mani-color-rgb-field" />
+          <input type="number" id="maniColorG" min="0" max="255" class="mani-color-rgb-field" />
+          <input type="number" id="maniColorB" min="0" max="255" class="mani-color-rgb-field" />
+          <button type="button" id="maniColorValidateBtn" class="mani-color-validate">Valider</button>
+          <span class="mani-color-rgb-lbl">R</span>
+          <span class="mani-color-rgb-lbl">G</span>
+          <span class="mani-color-rgb-lbl">B</span>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="./pdfjs-bridge.mjs"></script>
+    <script src="./floating-panel-drag.js"></script>
+    <script src="./mani-color-picker.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

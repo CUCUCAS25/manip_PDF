@@ -44,5 +44,9 @@ contextBridge.exposeInMainWorld("maniPdfApi", {
   onPdfToolAction: (cb) => ipcRenderer.on("app:pdf-tool", (_, action) => cb(action)),
   onAboutRequested: (cb) => ipcRenderer.on("app:about", () => cb()),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
-  setSpellcheckLanguages: (langs) => ipcRenderer.invoke("spellcheck:set-languages", langs)
+  setSpellcheckLanguages: (langs) => ipcRenderer.invoke("spellcheck:set-languages", langs),
+  spellcheckAnalyze: (payload) => ipcRenderer.invoke("spellcheck:analyze", payload),
+  spellcheckAddWord: (word) => ipcRenderer.invoke("spellcheck:add-word", { word }),
+  spellcheckRemoveWord: (word) => ipcRenderer.invoke("spellcheck:remove-word", { word }),
+  spellcheckIsCustomWord: (word) => ipcRenderer.invoke("spellcheck:is-custom-word", { word })
 });
