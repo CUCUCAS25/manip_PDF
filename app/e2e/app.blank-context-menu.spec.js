@@ -18,7 +18,12 @@ async function launchApp() {
   const app = await electron.launch({
     executablePath: electronPath,
     args: ["."],
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true", MANI_PDF_E2E: "1", MANI_PDF_E2E_PDF_PATH: pdfPath }
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
+      MANI_PDF_E2E: "1",
+      MANI_PDF_E2E_PDF_PATH: pdfPath
+    }
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
@@ -53,7 +58,8 @@ test("clic droit sur canvas vierge -> menu -> ajouter texte", async () => {
   await expect(menu).toBeVisible({ timeout: 8000 });
   await page.locator("#blankAddTextBtn").click();
 
-  await expect(page.locator("#annotationLayer .annotation.text")).toHaveCount(1, { timeout: 15000 });
+  await expect(page.locator("#annotationLayer .annotation.text")).toHaveCount(1, {
+    timeout: 15000
+  });
   await app.close();
 });
-

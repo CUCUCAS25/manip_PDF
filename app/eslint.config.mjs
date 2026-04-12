@@ -1,0 +1,83 @@
+import js from "@eslint/js";
+import eslintConfigPrettier from "eslint-config-prettier";
+import globals from "globals";
+
+/**
+ * Lint progressif : e2e, scripts, processus principal Electron (`src/main`),
+ * modules renderer légers (+ `renderer-text-html.js`, etc.) — pas `renderer.js` / `renderer-i18n-data.js` (gros fichiers).
+ */
+export default [
+  js.configs.recommended,
+  eslintConfigPrettier,
+  {
+    ignores: ["node_modules/**", "src/renderer/renderer.js", "src/renderer/renderer-i18n-data.js"]
+  },
+  {
+    files: ["e2e/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "commonjs",
+      globals: {
+        ...globals.node,
+        ...globals.browser
+      }
+    },
+    rules: {
+      "no-empty": ["error", { allowEmptyCatch: true }]
+    }
+  },
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        ...globals.node
+      }
+    }
+  },
+  {
+    files: ["node-tests/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "commonjs",
+      globals: {
+        ...globals.node
+      }
+    }
+  },
+  {
+    files: ["src/main/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "commonjs",
+      globals: {
+        ...globals.node
+      }
+    },
+    rules: {
+      "no-empty": ["error", { allowEmptyCatch: true }]
+    }
+  },
+  {
+    files: [
+      "src/renderer/mani-color-picker.js",
+      "src/renderer/floating-panel-drag.js",
+      "src/renderer/renderer-text-html.js",
+      "src/renderer/renderer-text-ctx.js",
+      "src/renderer/renderer-utils.js",
+      "src/renderer/renderer-toast.js",
+      "src/renderer/renderer-sidebars.js",
+      "src/renderer/renderer-text-ctx-menu.js",
+      "src/renderer/renderer-shape-image-ctx-menu.js",
+      "src/renderer/renderer-split-workspace.js"
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        ...globals.browser
+      }
+    }
+  }
+];

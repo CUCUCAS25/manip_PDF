@@ -225,7 +225,10 @@
         } catch (err) {
           console.error("[mani-color] maniAfterColorCommit exception", err);
           try {
-            globalThis.maniPdfApi?.log?.("mani-color commit exception", { id: inp.id, err: String(err) });
+            globalThis.maniPdfApi?.log?.("mani-color commit exception", {
+              id: inp.id,
+              err: String(err)
+            });
           } catch {
             /* ignore */
           }
@@ -260,7 +263,11 @@
       }
     }
     try {
-      if (typeof window !== "undefined" && window.maniPdfApi && typeof window.maniPdfApi.log === "function") {
+      if (
+        typeof window !== "undefined" &&
+        window.maniPdfApi &&
+        typeof window.maniPdfApi.log === "function"
+      ) {
         window.maniPdfApi.log("mani-color commit", {
           id: inp.id,
           hex: inp.value,
@@ -286,7 +293,8 @@
     const transparent =
       Boolean(labelCf?.classList.contains("is-transparent")) ||
       (id === "ctxTextBg" && Boolean(ctxBgRow?.classList.contains("is-transparent"))) ||
-      (id === "propBgColor" && Boolean(document.getElementById("propBgColorLabel")?.classList.contains("is-transparent")));
+      (id === "propBgColor" &&
+        Boolean(document.getElementById("propBgColorLabel")?.classList.contains("is-transparent")));
     if (transparent) {
       btn.classList.add("mani-swatch-transparent-bg");
     } else {

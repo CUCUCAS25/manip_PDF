@@ -46,10 +46,12 @@ async function openPdfFromUi(app, page) {
     win?.webContents?.send?.("pdf:open-from-menu", p);
   }, pdfPath);
 
-  await expect(page.locator("#tabs .tab")).toHaveCount(1, { timeout: 30000 }).catch(async () => {
-    const count = await page.locator("#tabs .tab").count();
-    if (count < 1) throw new Error("Aucun onglet après ouverture PDF");
-  });
+  await expect(page.locator("#tabs .tab"))
+    .toHaveCount(1, { timeout: 30000 })
+    .catch(async () => {
+      const count = await page.locator("#tabs .tab").count();
+      if (count < 1) throw new Error("Aucun onglet après ouverture PDF");
+    });
   // Multi-pages: au moins 1 page rendue.
   await expect(page.locator("#pagesContainer .pdf-page").first()).toBeVisible({ timeout: 30000 });
   // La page active doit avoir ses overlays (annotationLayer)
@@ -81,19 +83,6 @@ async function addTextAnnotation(page) {
   const annos = page.locator("#annotationLayer .annotation.text");
   await expect(annos).toHaveCount(1, { timeout: 15000 });
   return annos.nth(0);
-}
-
-async function getComputedStyleValue(page, selector, prop) {
-  return await page.evaluate(
-    ({ selector, prop }) => {
-      const el = document.querySelector(selector);
-      if (!el) return null;
-      const cs = window.getComputedStyle(el);
-      // @ts-ignore
-      return cs[prop] || null;
-    },
-    { selector, prop }
-  );
 }
 
 // Compat: certaines versions de Playwright n'ont pas toHaveCountGreaterThan.
@@ -158,15 +147,21 @@ test("load PDF, remove tab, add and edit text", async () => {
   // Entrer en édition: double-click (fallback mousedown existe, mais dblclick est mieux).
   await textNode.dblclick({ position: { x: 20, y: 20 } });
 
-  const editor = page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']");
+  const editor = page.locator(
+    "#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']"
+  );
   await expect(editor).toHaveCount(1);
   await editor.click();
   await editor.fill("Bonjour");
 
   // Sidebar "Ajouts": libellé type aligné sur i18n FR `annTextWin` (« Fenetre texte », sans accent)
   await expect(page.locator("#changesList .change-item")).toHaveCount(1);
-  await expect(page.locator("#changesList .change-item .change-type").first()).toContainText("Fenetre texte");
-  await expect(page.locator("#changesList .change-item .change-summary").first()).toContainText("Bonjour");
+  await expect(page.locator("#changesList .change-item .change-type").first()).toContainText(
+    "Fenetre texte"
+  );
+  await expect(page.locator("#changesList .change-item .change-summary").first()).toContainText(
+    "Bonjour"
+  );
 
   // Correcteur orthographique: activé et dépend de la langue UI (au moins via attributs DOM).
   await expect(editor).toHaveCount(1);
@@ -215,18 +210,24 @@ test("load PDF, remove tab, add and edit text", async () => {
   await page.locator(".viewer").click({ position: { x: 50, y: 50 } });
   const pasted = await page.evaluate(() => window.__maniE2E?.paste?.());
   expect(pasted).toBeTruthy();
-  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`)).toHaveCount(2);
+  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`)).toHaveCount(
+    2
+  );
 
   // Indépendance: éditer le 2e ne modifie pas le 1er
   const copies = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
   await copies.nth(1).dblclick({ position: { x: 20, y: 20 } });
-  const editor2 = page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']");
+  const editor2 = page.locator(
+    "#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']"
+  );
   await expect(editor2).toHaveCount(1);
   await editor2.click();
   await editor2.fill("Salut");
   await page.keyboard.press("Escape");
   await expect(page.locator(`#annotationLayer .annotation.text:has-text("Salut")`)).toHaveCount(1);
-  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`)).toHaveCount(1);
+  await expect(page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`)).toHaveCount(
+    1
+  );
 
   // Re-entrer en édition et re-sortir par clic hors champ (non régression)
   const textNodeEsc = page.locator(`#annotationLayer .annotation.text:has-text("Bonjour")`);
@@ -234,7 +235,9 @@ test("load PDF, remove tab, add and edit text", async () => {
   // dblclick peut être flaky sous Electron (DOM rerender). On force 2 clics rapprochés.
   await textNodeEsc.click({ position: { x: 20, y: 20 } });
   await textNodeEsc.click({ position: { x: 20, y: 20 } });
-  await expect(page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']")).toHaveCount(1);
+  await expect(
+    page.locator("#annotationLayer .annotation.text.editing .text-editor[contenteditable='true']")
+  ).toHaveCount(1);
 
   // Cliquer hors annotation => sortir édition + désélection
   await page.locator(".viewer").click({ position: { x: 5, y: 5 } });

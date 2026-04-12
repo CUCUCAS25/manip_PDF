@@ -52,7 +52,9 @@ test("sans sélection : Gras couvre tout le texte", async () => {
   const { app, page } = await launchApp();
   await openPdf(app, page);
 
-  const id = await page.evaluate(() => window.__maniE2E?.injectTextForTest?.({ plain: "bonjour monde" }));
+  const id = await page.evaluate(() =>
+    window.__maniE2E?.injectTextForTest?.({ plain: "bonjour monde" })
+  );
   expect(id).toBeTruthy();
 
   const ok = await page.evaluate(() => window.__maniE2E?.applyCtxFormatToSelectedText?.("bold"));
@@ -75,7 +77,9 @@ test("sans sélection : Italique couvre tout le texte", async () => {
   const { app, page } = await launchApp();
   await openPdf(app, page);
 
-  const id = await page.evaluate(() => window.__maniE2E?.injectTextForTest?.({ plain: "ligne une" }));
+  const id = await page.evaluate(() =>
+    window.__maniE2E?.injectTextForTest?.({ plain: "ligne une" })
+  );
   expect(id).toBeTruthy();
 
   const ok = await page.evaluate(() => window.__maniE2E?.applyCtxFormatToSelectedText?.("italic"));
@@ -98,10 +102,14 @@ test("sans sélection : Souligné couvre tout le texte", async () => {
   const { app, page } = await launchApp();
   await openPdf(app, page);
 
-  const id = await page.evaluate(() => window.__maniE2E?.injectTextForTest?.({ plain: "souligne moi" }));
+  const id = await page.evaluate(() =>
+    window.__maniE2E?.injectTextForTest?.({ plain: "souligne moi" })
+  );
   expect(id).toBeTruthy();
 
-  const ok = await page.evaluate(() => window.__maniE2E?.applyCtxFormatToSelectedText?.("underline"));
+  const ok = await page.evaluate(() =>
+    window.__maniE2E?.applyCtxFormatToSelectedText?.("underline")
+  );
   expect(ok).toBe(true);
 
   await page.waitForFunction(

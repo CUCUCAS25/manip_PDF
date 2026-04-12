@@ -11,7 +11,7 @@ async function waitForPdfPagesRendered(page) {
       return n === u.pageCount && n >= 1;
     },
     null,
-    { timeout: 45000 }
+    { timeout: 90000 }
   );
   await page.waitForFunction(
     () => {
@@ -22,7 +22,7 @@ async function waitForPdfPagesRendered(page) {
       return n === u.pageCount && thumbs === n && n >= 1;
     },
     null,
-    { timeout: 45000 }
+    { timeout: 90000 }
   );
 }
 

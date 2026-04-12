@@ -4,12 +4,14 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const { log } = require("./logger");
+const { isOutputPdfInSameDirectoryAsInput } = require("./lib/path-guard");
 const spellcheckService = require("./spellcheck-service");
 
 // Ensure logs go to project root by default.
 // (Logger also has its own default, but this makes it explicit.)
 try {
-  process.env.MANI_PDF_LOG_PATH = process.env.MANI_PDF_LOG_PATH || path.join(app.getAppPath(), "..", "mani-pdf.log");
+  process.env.MANI_PDF_LOG_PATH =
+    process.env.MANI_PDF_LOG_PATH || path.join(app.getAppPath(), "..", "mani-pdf.log");
 } catch {
   // ignore
 }
@@ -69,24 +71,6 @@ const ALLOWED_JOB_TYPES = new Set([
   "protect",
   "unprotect"
 ]);
-
-/**
- * Vérifie que le PDF de sortie est dans le même dossier que le PDF source.
- * Limite l'écriture arbitraire si le payload IPC était altéré (défense en profondeur).
- */
-function isOutputPdfInSameDirectoryAsInput(inputPath, outputPath) {
-  if (!inputPath || !outputPath || typeof inputPath !== "string" || typeof outputPath !== "string") {
-    return false;
-  }
-  if (!outputPath.toLowerCase().endsWith(".pdf")) return false;
-  try {
-    const inDir = path.normalize(path.dirname(path.resolve(inputPath)));
-    const outDir = path.normalize(path.dirname(path.resolve(outputPath)));
-    return inDir === outDir;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Valide le payload avant mise en file (chemins existants, sorties co-localisées avec la source).
@@ -275,8 +259,7 @@ function createMenu() {
         { type: "separator" },
         { role: "quit" }
       ]
-    }
-    ,
+    },
     {
       label: "Options",
       submenu: [
@@ -289,25 +272,51 @@ function createMenu() {
               checked: true,
               click: () => mainWindow?.webContents?.send?.("app:set-language", "fr")
             },
-            { label: "English", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "en") },
-            { label: "Espanol", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "es") },
-            { label: "Portugues", type: "radio", click: () => mainWindow?.webContents?.send?.("app:set-language", "pt") }
+            {
+              label: "English",
+              type: "radio",
+              click: () => mainWindow?.webContents?.send?.("app:set-language", "en")
+            },
+            {
+              label: "Espanol",
+              type: "radio",
+              click: () => mainWindow?.webContents?.send?.("app:set-language", "es")
+            },
+            {
+              label: "Portugues",
+              type: "radio",
+              click: () => mainWindow?.webContents?.send?.("app:set-language", "pt")
+            }
           ]
         },
         { type: "separator" },
         {
           label: "Outils PDF",
           submenu: [
-            { label: "Fusion", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "merge") },
-            { label: "Diviser", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "split") },
-            { label: "Compression", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "compress") },
-            { label: "Protéger", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "protect") },
-            { label: "Déprotéger", click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "unprotect") }
+            {
+              label: "Fusion",
+              click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "merge")
+            },
+            {
+              label: "Diviser",
+              click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "split")
+            },
+            {
+              label: "Compression",
+              click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "compress")
+            },
+            {
+              label: "Protéger",
+              click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "protect")
+            },
+            {
+              label: "Déprotéger",
+              click: () => mainWindow?.webContents?.send?.("app:pdf-tool", "unprotect")
+            }
           ]
         }
       ]
-    }
-    ,
+    },
     {
       label: "?",
       submenu: [
@@ -573,7 +582,11 @@ ipcMain.handle("session:load", async () => {
     try {
       const backupPath = `${sessionStatePath}.corrupted.${Date.now()}`;
       fs.copyFileSync(sessionStatePath, backupPath);
-      fs.writeFileSync(sessionStatePath, JSON.stringify({ tabs: [], activeTabId: null }, null, 2), "utf8");
+      fs.writeFileSync(
+        sessionStatePath,
+        JSON.stringify({ tabs: [], activeTabId: null }, null, 2),
+        "utf8"
+      );
       return { ok: true, data: { tabs: [], activeTabId: null }, recovered: true };
     } catch {
       return { ok: false, error: `Echec chargement session: ${error.message}` };
@@ -583,7 +596,10 @@ ipcMain.handle("session:load", async () => {
 
 ipcMain.handle("dialog:savePdfAs", async (_, suggestedName) => {
   if (!mainWindow) return { ok: false, error: "Fenetre principale indisponible." };
-  const name = typeof suggestedName === "string" && suggestedName.trim() ? suggestedName.trim() : "document_modifie.pdf";
+  const name =
+    typeof suggestedName === "string" && suggestedName.trim()
+      ? suggestedName.trim()
+      : "document_modifie.pdf";
   const result = await dialog.showSaveDialog(mainWindow, {
     title: "Enregistrer sous",
     defaultPath: name,
@@ -662,8 +678,10 @@ ipcMain.handle("python:health", async () => getPythonHealth());
 ipcMain.handle("job:cancel", async (_, id) => {
   const job = jobs.find((j) => j.id === id);
   if (!job) return { ok: false, error: "Job introuvable." };
-  if (job.status === "succeeded" || job.status === "failed") return { ok: false, error: "Job deja termine." };
-  if (job.status === "running") return { ok: false, error: "Annulation d'un job running non supportee." };
+  if (job.status === "succeeded" || job.status === "failed")
+    return { ok: false, error: "Job deja termine." };
+  if (job.status === "running")
+    return { ok: false, error: "Annulation d'un job running non supportee." };
   job.status = "cancelled";
   job.progress = 100;
   persistJobs();
@@ -730,7 +748,7 @@ ipcMain.handle("spellcheck:set-languages", async (_, input) => {
     }
     ses.setSpellCheckerLanguages(langs);
     return { ok: true, languages: langs };
-  } catch (e) {
+  } catch {
     return { ok: false, error: "Impossible d'appliquer la langue du correcteur." };
   }
 });
@@ -738,8 +756,7 @@ ipcMain.handle("spellcheck:set-languages", async (_, input) => {
 ipcMain.handle("spellcheck:analyze", async (_, payload) => {
   const langRaw = payload?.lang;
   const text = payload?.text != null ? String(payload.text) : "";
-  const lang =
-    normalizeSpellcheckLanguage(langRaw) || normalizeSpellcheckLanguage("fr") || "fr-FR";
+  const lang = normalizeSpellcheckLanguage(langRaw) || normalizeSpellcheckLanguage("fr") || "fr-FR";
   try {
     const spell = await spellcheckService.getSpell(lang);
     if (!spell) {

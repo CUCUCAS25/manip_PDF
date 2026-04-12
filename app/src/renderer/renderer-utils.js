@@ -1,0 +1,62 @@
+/**
+ * Utilitaires légers partagés par le renderer (logs, ids, copie presse-papiers).
+ * Chargé avant `renderer.js` ; expose `window.__editifyUtils`.
+ */
+(function () {
+  "use strict";
+
+  /** Logs diagnostics (console + IPC si dispo). Ne doit jamais lever. */
+  function logText(tag, payload) {
+    try {
+      if (typeof console !== "undefined" && typeof console.info === "function") {
+        console.info(`[editify:${tag}]`, payload);
+      }
+      try {
+        globalThis.maniPdfApi?.log?.(
+          tag,
+          payload && typeof payload === "object" ? payload : { v: payload }
+        );
+      } catch {
+        /* ignore */
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function newAnnotationId() {
+    return `${Date.now()}-${Math.random()}`;
+  }
+
+  function deepClone(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  }
+
+  function cloneForClipboard(item) {
+    try {
+      const cloned = deepClone(item);
+      delete cloned.id;
+      delete cloned.x;
+      delete cloned.y;
+      return cloned;
+    } catch {
+      try {
+        const out = {};
+        Object.keys(item || {}).forEach((k) => {
+          if (k === "id" || k === "x" || k === "y") return;
+          out[k] = item[k];
+        });
+        return out;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  window.__editifyUtils = {
+    logText,
+    newAnnotationId,
+    deepClone,
+    cloneForClipboard
+  };
+})();

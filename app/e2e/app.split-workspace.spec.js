@@ -81,7 +81,10 @@ test("Split: overlay visible, deux groupes, miniatures = nombre de pages, Echap 
   await expect(page.locator("#splitWorkspaceGroups .split-group")).toHaveCount(2);
   const expectedPages = await page.evaluate(() => window.__maniE2E?.getUiState?.()?.pageCount);
   expect(typeof expectedPages).toBe("number");
-  const thumbsFirstGroup = page.locator("#splitWorkspaceGroups .split-group").first().locator(".split-thumb");
+  const thumbsFirstGroup = page
+    .locator("#splitWorkspaceGroups .split-group")
+    .first()
+    .locator(".split-thumb");
   await expect(thumbsFirstGroup).toHaveCount(expectedPages);
 
   await page.keyboard.press("Escape");
@@ -103,7 +106,10 @@ test("Split: bouton + Groupe ajoute un groupe (groupe 3)", async () => {
   await page.locator("#splitWorkspaceAddGroupBtn").click();
   await expect(page.locator("#splitWorkspaceGroups .split-group")).toHaveCount(3);
 
-  const lastGroupName = await page.locator("#splitWorkspaceGroups .split-group-name").last().inputValue();
+  const lastGroupName = await page
+    .locator("#splitWorkspaceGroups .split-group-name")
+    .last()
+    .inputValue();
   expect(lastGroupName).toMatch(/groupe\s*3/i);
 
   await app.close();

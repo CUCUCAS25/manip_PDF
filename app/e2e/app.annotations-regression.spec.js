@@ -86,10 +86,15 @@ test("forme etoile: rendu SVG + menu contextuel (rotation, opacite)", async () =
   const id = await page.evaluate(() => window.__maniE2E?.injectShapeForTest?.("star"));
   expect(id && String(id).length > 0).toBeTruthy();
 
-  await expect(page.locator("#annotationLayer .annotation.star.shape-vector")).toHaveCount(1, { timeout: 15000 });
+  await expect(page.locator("#annotationLayer .annotation.star.shape-vector")).toHaveCount(1, {
+    timeout: 15000
+  });
   await expect(page.locator("#annotationLayer .annotation.star svg.shape-svg")).toHaveCount(1);
 
-  const props = await page.evaluate((annotationId) => window.__maniE2E?.getAnnotationProps?.(annotationId), id);
+  const props = await page.evaluate(
+    (annotationId) => window.__maniE2E?.getAnnotationProps?.(annotationId),
+    id
+  );
   expect(props?.type).toBe("star");
 
   await page.locator("#annotationLayer .annotation.star").click({ position: { x: 40, y: 40 } });
@@ -99,7 +104,9 @@ test("forme etoile: rendu SVG + menu contextuel (rotation, opacite)", async () =
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.star").click({ button: "right", position: { x: 50, y: 50 } });
+  await page
+    .locator("#annotationLayer .annotation.star")
+    .click({ button: "right", position: { x: 50, y: 50 } });
   const shapeMenu = page.locator("#shapeAnnotationCtxMenu");
   await expect(shapeMenu).toBeVisible({ timeout: 8000 });
   await expect(shapeMenu.locator("#ctxShapeRotation")).toBeVisible();
@@ -128,7 +135,9 @@ test("image: menu contextuel rotation / opacite", async () => {
   const id = await page.evaluate(() => window.__maniE2E?.injectImageForTest?.());
   expect(id).toBeTruthy();
 
-  await expect(page.locator("#annotationLayer .annotation.image")).toHaveCount(1, { timeout: 15000 });
+  await expect(page.locator("#annotationLayer .annotation.image")).toHaveCount(1, {
+    timeout: 15000
+  });
 
   await page.locator("#annotationLayer .annotation.image").click({ position: { x: 20, y: 20 } });
   await page.waitForFunction(
@@ -137,7 +146,9 @@ test("image: menu contextuel rotation / opacite", async () => {
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.image").click({ button: "right", position: { x: 30, y: 25 } });
+  await page
+    .locator("#annotationLayer .annotation.image")
+    .click({ button: "right", position: { x: 30, y: 25 } });
   const imgMenu = page.locator("#imageAnnotationCtxMenu");
   await expect(imgMenu).not.toHaveClass(/hidden/, { timeout: 8000 });
   await expect(imgMenu.locator("#ctxImageRotation")).toBeVisible();
@@ -164,10 +175,14 @@ test("texte: menu contextuel contient rotation et opacite", async () => {
   await openPdfFromMenu(app, page);
 
   await page.locator("#addTextBtn").click();
-  await expect(page.locator("#annotationLayer .annotation.text")).toHaveCount(1, { timeout: 15000 });
+  await expect(page.locator("#annotationLayer .annotation.text")).toHaveCount(1, {
+    timeout: 15000
+  });
   await page.locator("#annotationLayer .annotation.text").click({ position: { x: 30, y: 20 } });
 
-  await page.locator("#annotationLayer .annotation.text").click({ button: "right", position: { x: 40, y: 22 } });
+  await page
+    .locator("#annotationLayer .annotation.text")
+    .click({ button: "right", position: { x: 40, y: 22 } });
   const textMenu = page.locator("#textAnnotationCtxMenu");
   await expect(textMenu).toBeVisible({ timeout: 8000 });
   await expect(textMenu.locator("#ctxTextRotation")).toBeVisible();

@@ -97,7 +97,10 @@ test.describe("Formes : taille minimale (CSS + modèle)", () => {
     const id = await page.evaluate(() => window.__maniE2E?.injectShapeForTest?.("rect"));
     expect(id && String(id).length > 0).toBeTruthy();
 
-    const ok = await page.evaluate((annotationId) => window.__maniE2E?.setAnnotationLogicalSizeForTest?.(annotationId, 3, 3), id);
+    const ok = await page.evaluate(
+      (annotationId) => window.__maniE2E?.setAnnotationLogicalSizeForTest?.(annotationId, 3, 3),
+      id
+    );
     expect(ok).toBe(true);
 
     const dims = await page.evaluate((annotationId) => {
@@ -138,7 +141,9 @@ test.describe("Menus contextuels : clic droit sans sélection préalable", () =>
       return u && !u.selectedAnnotationId;
     });
 
-    await page.locator("#annotationLayer .annotation.rect").click({ button: "right", position: { x: 50, y: 50 } });
+    await page
+      .locator("#annotationLayer .annotation.rect")
+      .click({ button: "right", position: { x: 50, y: 50 } });
     const menu = page.locator("#shapeAnnotationCtxMenu");
     await expect(menu).toBeVisible({ timeout: 8000 });
     await expect(menu.locator("#ctxShapeRotation")).toBeVisible();
@@ -159,7 +164,9 @@ test.describe("Menus contextuels : clic droit sans sélection préalable", () =>
       return u && !u.selectedAnnotationId;
     });
 
-    await page.locator("#annotationLayer .annotation.image").click({ button: "right", position: { x: 30, y: 25 } });
+    await page
+      .locator("#annotationLayer .annotation.image")
+      .click({ button: "right", position: { x: 30, y: 25 } });
     const menu = page.locator("#imageAnnotationCtxMenu");
     await expect(menu).toBeVisible({ timeout: 8000 });
     await expect(menu.locator("#ctxImageRotation")).toBeVisible();
@@ -172,7 +179,9 @@ test.describe("Menus contextuels : clic droit sans sélection préalable", () =>
     await openPdfFromMenu(app, page);
 
     await page.locator("#addTextBtn").click();
-    await expect(page.locator("#annotationLayer .annotation.text")).toHaveCount(1, { timeout: 15000 });
+    await expect(page.locator("#annotationLayer .annotation.text")).toHaveCount(1, {
+      timeout: 15000
+    });
 
     await page.evaluate(() => window.__maniE2E?.clearSelectionForTest?.());
     await page.waitForFunction(() => {
@@ -180,7 +189,9 @@ test.describe("Menus contextuels : clic droit sans sélection préalable", () =>
       return u && !u.selectedAnnotationId;
     });
 
-    await page.locator("#annotationLayer .annotation.text").click({ button: "right", position: { x: 40, y: 22 } });
+    await page
+      .locator("#annotationLayer .annotation.text")
+      .click({ button: "right", position: { x: 40, y: 22 } });
     const menu = page.locator("#textAnnotationCtxMenu");
     await expect(menu).toBeVisible({ timeout: 8000 });
     await expect(menu.locator("#ctxTextRotation")).toBeVisible();

@@ -8,7 +8,70 @@
  * - Annotations: rectangles logiques (x,y,w,h) + rotation CSS ; redimensionnement projeté dans le repère local.
  * - Texte enrichi: `sanitizeTextHtml` réduit le risque XSS avant insertion dans le DOM.
  * - Split pages: état local + brouillon `localStorage` ; export uniquement via job `split_groups` validé côté main.
+ *
+ * Découpage i18n (bonnes pratiques):
+ * - `renderer-i18n-data.js` : uniquement les dictionnaires (`window.__EDITIFY_I18N`). Chargé avant ce script (index.html).
+ * - Ce fichier : `t` / `tr`, `applyLanguage`, constantes de clés (tooltips, formes), logique UI liée au DOM.
+ * - `renderer-text-html.js` : `sanitizeTextHtml`, plain text, surlignage orthographe (`window.__editifyTextHtml`).
+ * - `renderer-text-ctx.js` : helpers format / sélection / remplacement (`window.__editifyTextCtxHelpers`).
+ * - `renderer-utils.js` : logs, ids, clone presse-papiers (`window.__editifyUtils`).
+ * - `renderer-toast.js` : toasts (`window.__editifyToast`).
+ * - `renderer-sidebars.js` : colonnes miniatures + ajouts (`window.__editifySidebars` + `bind()` après définition des dépendances).
+ * - `renderer-text-ctx-menu.js` : menu contextuel texte + orthographe (`window.__editifyTextCtxMenu` + `bind()` après `syncPropertyInputs`).
+ * - `renderer-shape-image-ctx-menu.js` : menus forme + image (`window.__editifyShapeImageCtxMenu`, `sim.bind()` avant `tcm.bind()`).
+ * - `renderer-split-workspace.js` : overlay Split par groupes (`window.__editifySplitWorkspace`, `sw.bind()` après `enqueuePdfJob`).
  */
+if (!window.__editifyTextHtml) {
+  throw new Error("[editify] Charger renderer-text-html.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyTextCtxHelpers) {
+  throw new Error("[editify] Charger renderer-text-ctx.js après renderer-text-html.js (voir index.html).");
+}
+if (!window.__editifyUtils) {
+  throw new Error("[editify] Charger renderer-utils.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyToast) {
+  throw new Error("[editify] Charger renderer-toast.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifySidebars) {
+  throw new Error("[editify] Charger renderer-sidebars.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyTextCtxMenu) {
+  throw new Error("[editify] Charger renderer-text-ctx-menu.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyShapeImageCtxMenu) {
+  throw new Error("[editify] Charger renderer-shape-image-ctx-menu.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifySplitWorkspace) {
+  throw new Error("[editify] Charger renderer-split-workspace.js avant renderer.js (voir index.html).");
+}
+const {
+  sanitizeTextHtml,
+  stripTagsForPlain,
+  plainTextForAnnotationItem,
+  getTextBoundaryInRoot,
+  wrapSpellMisspellingsInDisplayRoot,
+  applySpellHighlightsToTextDisplayNode
+} = window.__editifyTextHtml;
+const {
+  getPlainSelectionOffsetsInEditor,
+  textNodeFormatHit,
+  getFormatCoverage,
+  getFormatCoverageFromSanitizedHtml,
+  setFmtBtnState,
+  replacePlainTextRangeInEditor,
+  replacePlainRangeInTextItem
+} = window.__editifyTextCtxHelpers;
+const { logText, newAnnotationId, deepClone, cloneForClipboard } = window.__editifyUtils;
+const { ensureToastRoot, dismissToast, showToast } = window.__editifyToast;
+const tcm = window.__editifyTextCtxMenu;
+const sim = window.__editifyShapeImageCtxMenu;
+const sw = window.__editifySplitWorkspace;
+/** Assignées après `bind()` en fin de fichier (dépendances `getActiveTab`, `renderAnnotations`, …). */
+let scheduleSidebarUpdate;
+let renderThumbnails;
+let renderChanges;
+
 const welcomeScreen = document.getElementById("welcomeScreen");
 const addTextBtn = document.getElementById("addTextBtn");
 const addShapeBtn = document.getElementById("addShapeBtn");
@@ -72,17 +135,6 @@ let pdfCanvas = null;
 let annotationLayer = null;
 let dropOverlay = null;
 
-/** @type {{ tabPath: string, pageCount: number, groups: { id: string, name: string, pages: number[] }[], nextGroupId: number, selected: Set<number>, anchorPage: number | null } | null} */
-let splitWorkspaceState = null;
-let splitAutosaveTimer = null;
-/** @type {{ page: number, groupId: string, startX: number, startY: number, dragging: boolean, didDrag: boolean, noDrag: boolean, shift: boolean, ctrl: boolean } | null} */
-let splitPointer = null;
-let splitDragGhost = null;
-/** @type {number[] | null} */
-let splitDragPages = null;
-let splitDragOffsetX = 44;
-let splitDragOffsetY = 56;
-let splitDropHoverEl = null;
 const jobsPanel = document.getElementById("jobsPanel");
 const sensitivePanel = document.getElementById("sensitivePanel");
 const toolTip = document.getElementById("toolTip");
@@ -139,22 +191,6 @@ const state = {
   lastPointer: null // { page, x, y }
 };
 
-/** Logs diagnostics (console + IPC si dispo). Ne doit jamais lever. */
-function logText(tag, payload) {
-  try {
-    if (typeof console !== "undefined" && typeof console.info === "function") {
-      console.info(`[editify:${tag}]`, payload);
-    }
-    try {
-      globalThis.maniPdfApi?.log?.(tag, payload && typeof payload === "object" ? payload : { v: payload });
-    } catch {
-      /* ignore */
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 function loadPreferredLanguage() {
   try {
     const raw = localStorage.getItem("editify:lang");
@@ -178,23 +214,8 @@ let lastTextMouseDownAt = 0;
 let lastTextMouseDownId = null;
 const lastAutoGrowHeightById = new Map();
 let measureTextNode = null;
-/** Annule les rafraîchissements async du menu orthographe quand le menu se ferme. */
-let spellCtxMenuSeq = 0;
 
-// ---------------------------
-// Sidebars (miniatures + ajouts)
-// ---------------------------
-let sidebarUpdateTimer = null;
-function scheduleSidebarUpdate() {
-  if (sidebarUpdateTimer) clearTimeout(sidebarUpdateTimer);
-  sidebarUpdateTimer = setTimeout(() => {
-    sidebarUpdateTimer = null;
-    try {
-      renderThumbnails();
-      renderChanges();
-    } catch {}
-  }, 60);
-}
+// Sidebars : `scheduleSidebarUpdate` / `renderThumbnails` / `renderChanges` — `renderer-sidebars.js` + `bind()` fin de fichier.
 
 function annotationTypeLabel(a) {
   if (!a) return t("annElem");
@@ -218,258 +239,6 @@ function annotationSummary(a) {
     return name ? tr("imageNamed", { name }) : t("imageAdded");
   }
   return tr("shapeSummaryPrefix", { label: annotationTypeLabel(a) });
-}
-
-function getAllAnnotationsWithPage(tab) {
-  const out = [];
-  if (!tab?.annotationsByPage) return out;
-  Object.keys(tab.annotationsByPage).forEach((page) => {
-    const arr = tab.annotationsByPage[page] || [];
-    arr.forEach((a) => out.push({ page: Number(page) || 1, a }));
-  });
-  out.sort((x, y) => x.page - y.page);
-  return out;
-}
-
-function renderChanges() {
-  if (!changesList) return;
-  const tab = getActiveTab();
-  changesList.innerHTML = "";
-  if (!tab) {
-    if (changesCount) changesCount.textContent = "0";
-    return;
-  }
-  const list = getAllAnnotationsWithPage(tab);
-  if (changesCount) changesCount.textContent = String(list.length);
-  if (list.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "muted";
-    empty.textContent = t("noAddsDoc");
-    changesList.appendChild(empty);
-    return;
-  }
-  list.forEach(({ page, a }) => {
-    const row = document.createElement("div");
-    row.className = `change-item ${state.selectedAnnotationId === a.id ? "selected" : ""}`;
-    row.dataset.id = a.id;
-    row.dataset.page = String(page);
-    const top = document.createElement("div");
-    top.className = "change-topline";
-    const type = document.createElement("div");
-    type.className = "change-type";
-    type.textContent = annotationTypeLabel(a);
-    const p = document.createElement("div");
-    p.className = "change-page";
-    p.textContent = tr("changePageLine", { n: String(page) });
-    top.appendChild(type);
-    top.appendChild(p);
-    const sum = document.createElement("div");
-    sum.className = "change-summary";
-    sum.textContent = annotationSummary(a);
-    row.appendChild(top);
-    row.appendChild(sum);
-    row.addEventListener("click", () => {
-      try {
-        // Important: définir la sélection AVANT le changement de page,
-        // pour que le renderAnnotations déclenché par setActivePage la prenne en compte.
-        state.selectedAnnotationId = a.id;
-        state.editingAnnotationId = null;
-        setActivePage(page);
-        const pageNode = pagesContainer?.querySelector?.(`.pdf-page[data-page="${page}"]`);
-        pageNode?.scrollIntoView?.({ block: "start", inline: "nearest" });
-        syncPropertyInputs();
-        renderAnnotations();
-        requestAnimationFrame(() => {
-          try {
-            const node = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
-            node?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-          } catch {
-            /* ignore */
-          }
-        });
-      } catch {
-        /* ignore */
-      }
-    });
-    row.oncontextmenu = (ev) => {
-      try {
-        ev.preventDefault();
-      } catch {}
-      try {
-        // Le clic droit doit aussi sélectionner et naviguer (listener "click" sur la ligne).
-        row.click();
-      } catch {}
-      try {
-        const menu = ensureChangesContextMenu();
-        menu.classList.remove("hidden");
-        const margin = 8;
-        const x = clamp((ev.clientX ?? 0) + 2, margin, window.innerWidth - 240 - margin);
-        const y = clamp((ev.clientY ?? 0) + 2, margin, window.innerHeight - 80 - margin);
-        menu.style.left = `${x}px`;
-        menu.style.top = `${y}px`;
-      } catch {}
-    };
-    changesList.appendChild(row);
-  });
-  // Ne pas appeler scheduleSidebarUpdate() ici : il rappelle renderChanges() après 60 ms en boucle,
-  // ce qui recrée tout le DOM des lignes et annule le « click » (mousedown sans mouseup sur le même nœud).
-  // Les mises à jour sont déjà déclenchées depuis renderAnnotations / setActivePage / rendu PDF.
-}
-
-function drawThumbOverlay(ctx, annos, scale) {
-  if (!ctx || !annos?.length) return;
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  annos.forEach((a) => {
-    const x = (a.x || 0) * scale;
-    const y = (a.y || 0) * scale;
-    const w = (a.w || 20) * scale;
-    const h = (a.h || 20) * scale;
-    if (a.type === "text") {
-      ctx.strokeStyle = "rgba(0,122,204,0.9)";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "rgba(0,122,204,0.9)";
-      ctx.font = "10px Arial";
-      ctx.fillText("T", x + 2, y + 10);
-    } else if (a.type === "image") {
-      ctx.strokeStyle = "rgba(33,150,243,0.9)";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "rgba(33,150,243,0.9)";
-      ctx.font = "10px Arial";
-      ctx.fillText("IMG", x + 2, y + 10);
-    } else {
-      ctx.strokeStyle = "rgba(255,120,0,0.95)";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(x, y, w, h);
-    }
-  });
-  ctx.restore();
-}
-
-function renderThumbnails() {
-  if (!thumbsList || !pagesContainer) return;
-  const tab = getActiveTab();
-  thumbsList.innerHTML = "";
-  if (!tab) return;
-  const pages = Array.from(pagesContainer.querySelectorAll(".pdf-page"));
-  if (pages.length === 0) return;
-
-  pages.forEach((pageNode) => {
-    const pageNumber = Number(pageNode.dataset.page) || 1;
-    const srcCanvas = pageNode.querySelector("canvas.pdf-canvas");
-    if (!srcCanvas) return;
-
-    const item = document.createElement("div");
-    item.className = `thumb-item ${tab.currentPage === pageNumber ? "active" : ""}`;
-    item.dataset.page = String(pageNumber);
-
-    const thumb = document.createElement("canvas");
-    thumb.className = "thumb-canvas";
-    const targetW = 56;
-    const ratio = srcCanvas.width > 0 ? targetW / srcCanvas.width : 1;
-    thumb.width = Math.max(10, Math.floor(srcCanvas.width * ratio));
-    thumb.height = Math.max(10, Math.floor(srcCanvas.height * ratio));
-    const ctx = thumb.getContext("2d");
-    try {
-      ctx.drawImage(srcCanvas, 0, 0, thumb.width, thumb.height);
-      const annos = tab.annotationsByPage?.[String(pageNumber)] || [];
-      drawThumbOverlay(ctx, annos, ratio);
-    } catch {}
-
-    const meta = document.createElement("div");
-    meta.className = "thumb-meta";
-    const title = document.createElement("div");
-    title.className = "thumb-title";
-    title.textContent = `${t("pageWord")} ${pageNumber}`;
-    const annosCount = (tab.annotationsByPage?.[String(pageNumber)] || []).length;
-    const sub = document.createElement("div");
-    sub.className = "thumb-sub";
-    sub.textContent = annosCount ? tr("thumbAddsCount", { n: String(annosCount) }) : t("noAdds");
-    meta.appendChild(title);
-    meta.appendChild(sub);
-
-    item.appendChild(thumb);
-    item.appendChild(meta);
-    item.onclick = () => {
-      try {
-        setActivePage(pageNumber);
-        pageNode.scrollIntoView({ block: "start", inline: "nearest" });
-        renderThumbnails();
-        renderChanges();
-      } catch {}
-    };
-    thumbsList.appendChild(item);
-  });
-}
-
-// ---------------------------
-// E7: Toast manager (renderer)
-// ---------------------------
-let toastRoot = null;
-const activeToastsById = new Map(); // id -> { node, timeout }
-
-function ensureToastRoot() {
-  if (toastRoot && document.body.contains(toastRoot)) return toastRoot;
-  toastRoot = document.createElement("div");
-  toastRoot.className = "toast-root";
-  toastRoot.setAttribute("aria-label", "Notifications");
-  document.body.appendChild(toastRoot);
-  return toastRoot;
-}
-
-function dismissToast(id) {
-  const entry = activeToastsById.get(id);
-  if (!entry) return;
-  activeToastsById.delete(id);
-  try {
-    if (entry.timeout) clearTimeout(entry.timeout);
-  } catch {}
-  try {
-    entry.node?.remove?.();
-  } catch {}
-}
-
-function showToast({ message, actionLabel, onAction, timeoutMs = 6500 }) {
-  const root = ensureToastRoot();
-  const id = `t_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  const node = document.createElement("div");
-  node.className = "toast";
-  node.dataset.toastId = id;
-
-  const msg = document.createElement("div");
-  msg.className = "toast-msg";
-  msg.textContent = message || "";
-  node.appendChild(msg);
-
-  if (actionLabel && typeof onAction === "function") {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "toast-action";
-    btn.textContent = actionLabel;
-    btn.onclick = () => {
-      try {
-        onAction();
-      } finally {
-        dismissToast(id);
-      }
-    };
-    node.appendChild(btn);
-  }
-
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "toast-close";
-  close.setAttribute("aria-label", "Fermer");
-  close.textContent = "✕";
-  close.onclick = () => dismissToast(id);
-  node.appendChild(close);
-
-  root.appendChild(node);
-  const timeout = setTimeout(() => dismissToast(id), Math.max(1200, Number(timeoutMs) || 6500));
-  activeToastsById.set(id, { node, timeout });
-  return id;
 }
 
 // ---------------------------------------
@@ -508,38 +277,6 @@ function commitActiveTextEditIfNeeded(targetAnnotationId) {
     scheduleAutoSave();
   }
   state.editingAnnotationId = null;
-}
-
-function newAnnotationId() {
-  return `${Date.now()}-${Math.random()}`;
-}
-
-function deepClone(obj) {
-  // Suffisant ici: nos annotations sont sérialisables (pas de fonctions, pas de cycles).
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function cloneForClipboard(item) {
-  // On ne conserve pas la position (x/y) ni l'id: le collage se fait au curseur.
-  // On garde toutes les autres props pour reproduire l'état à l'instant du copier/couper.
-  try {
-    const cloned = deepClone(item);
-    delete cloned.id;
-    delete cloned.x;
-    delete cloned.y;
-    return cloned;
-  } catch {
-    try {
-      const out = {};
-      Object.keys(item || {}).forEach((k) => {
-        if (k === "id" || k === "x" || k === "y") return;
-        out[k] = item[k];
-      });
-      return out;
-    } catch {
-      return null;
-    }
-  }
 }
 
 function getSelectedAnnotationFromActivePage(tab) {
@@ -689,9 +426,9 @@ function showBlankCanvasCtxMenu(event) {
   capturePointerInPage(event);
   closeAllFlyoutMenus();
   hideChangesContextMenu();
-  hideTextAnnotationCtxMenu();
-  hideShapeAnnotationCtxMenu();
-  hideImageAnnotationCtxMenu();
+  tcm.hideTextAnnotationCtxMenu();
+  sim.hideShapeAnnotationCtxMenu();
+  sim.hideImageAnnotationCtxMenu();
 
   // Positionner le menu à l'écran (clamp pour éviter overflow).
   try {
@@ -814,7 +551,7 @@ document.addEventListener(
       !pointerEventInsideElementBox(e, textCtxEl) &&
       !inManiColor
     ) {
-      hideTextAnnotationCtxMenu();
+      tcm.hideTextAnnotationCtxMenu();
     }
     if (
       !e.target?.closest?.("#shapeAnnotationCtxMenu") &&
@@ -833,14 +570,14 @@ document.addEventListener(
       } catch {
         /* ignore */
       }
-      hideShapeAnnotationCtxMenu();
+      sim.hideShapeAnnotationCtxMenu();
     }
     if (
       !e.target?.closest?.("#imageAnnotationCtxMenu") &&
       !pointerEventInsideElementBox(e, imageCtxEl) &&
       !inManiColor
     ) {
-      hideImageAnnotationCtxMenu();
+      sim.hideImageAnnotationCtxMenu();
     }
     if (!e.target?.closest?.("#blankCanvasCtxMenu") && !pointerEventInsideElementBox(e, blankCtxEl)) hideBlankCanvasCtxMenu();
     if (!e.target?.closest?.("#aboutPopover") && e.target !== toolbarAboutBtn) hideAboutPopover();
@@ -848,883 +585,9 @@ document.addEventListener(
   true
 );
 
-// ---------------------------
-// Menu contextuel (fenêtre texte sur le PDF)
-// ---------------------------
-let textAnnotationCtxMenuEl = null;
-let textCtxMenuTargetId = null;
+// Menu contextuel (fenêtre texte) : renderer-text-ctx-menu.js — `tcm`, `tcm.bind()` après `syncPropertyInputs`.
 
-function ensureTextAnnotationCtxMenuEl() {
-  if (textAnnotationCtxMenuEl) return textAnnotationCtxMenuEl;
-  textAnnotationCtxMenuEl = document.getElementById("textAnnotationCtxMenu");
-  return textAnnotationCtxMenuEl;
-}
-
-function hideTextAnnotationCtxMenu() {
-  spellCtxMenuSeq += 1;
-  try {
-    logText("ctxTextMenuHide", { hadTarget: Boolean(textCtxMenuTargetId) });
-  } catch {
-    /* ignore */
-  }
-  try {
-    ensureTextAnnotationCtxMenuEl()?.classList?.add?.("hidden");
-  } catch {}
-  textCtxMenuTargetId = null;
-  globalThis.__maniCtxTextBackup = undefined;
-}
-
-function syncTextCtxMenuFieldsFromItem(item) {
-  const rot = document.getElementById("ctxTextRotation");
-  const op = document.getElementById("ctxTextOpacity");
-  if (rot) rot.value = String(Math.round(item.rotation || 0));
-  if (op) op.value = String(Math.round(item.opacity ?? 100));
-  const font = document.getElementById("ctxTextFont");
-  const size = document.getElementById("ctxTextSize");
-  const col = document.getElementById("ctxTextColor");
-  const bg = document.getElementById("ctxTextBg");
-  if (font) font.value = item.fontFamily || "Arial";
-  if (size) size.value = String(Math.round(item.fontSize ?? 14));
-  if (col) col.value = item.textColor || "#111111";
-  const bgTr = !item.bgColor;
-  if (bg) bg.value = bgTr ? "#ffffff" : item.bgColor;
-  document.getElementById("ctxTextBgLabel")?.classList?.toggle?.("is-transparent", bgTr);
-  try {
-    window.syncManiColorSwatches?.();
-  } catch {
-    /* ignore */
-  }
-}
-
-function applyTextCtxMenuBoxProps() {
-  const tab = getActiveTab();
-  if (!tab || !textCtxMenuTargetId) return;
-  const loc = findAnnotationLocation(tab, textCtxMenuTargetId);
-  if (!loc || loc.item.type !== "text") return;
-  const item = loc.item;
-  captureSnapshot(tab);
-  const font = document.getElementById("ctxTextFont");
-  const size = document.getElementById("ctxTextSize");
-  const col = document.getElementById("ctxTextColor");
-  const bg = document.getElementById("ctxTextBg");
-  if (font) item.fontFamily = font.value || item.fontFamily;
-  if (size) item.fontSize = Math.max(8, Math.min(96, Number(size.value) || 14));
-  if (col) item.textColor = col.value || item.textColor;
-  const rot = document.getElementById("ctxTextRotation");
-  const op = document.getElementById("ctxTextOpacity");
-  if (rot) item.rotation = Math.max(0, Math.min(360, Number(rot.value) || 0));
-  if (op) item.opacity = Math.max(0, Math.min(100, Number(op.value) || 100));
-  if (bg && bg.dataset.ctxTouched === "1") {
-    item.bgColor = bg.value ? bg.value : null;
-  }
-  if (propFontFamily) propFontFamily.value = item.fontFamily || "Arial";
-  if (propFontSize) propFontSize.value = String(Math.round(item.fontSize ?? 14));
-  if (propTextColor) propTextColor.value = item.textColor || "#111111";
-  if (propBgColor) {
-    const t = !item.bgColor;
-    propBgColor.value = t ? "#ffffff" : item.bgColor;
-    propBgColorLabel?.classList?.toggle?.("is-transparent", t);
-    propBgColor.dataset.touched = item.bgColor ? "1" : "0";
-  }
-  renderAnnotations();
-  scheduleAutoSave();
-}
-
-function openTextAnnotationCtxMenu(event, annotationId) {
-  commitActiveTextEditIfNeeded(annotationId);
-  cancelPointerInteraction();
-  const menu = ensureTextAnnotationCtxMenuEl();
-  if (!menu) return;
-  const tab = getActiveTab();
-  if (!tab) return;
-  const loc = findAnnotationLocation(tab, annotationId);
-  if (!loc || loc.item.type !== "text") return;
-  hideShapeAnnotationCtxMenu();
-  hideImageAnnotationCtxMenu();
-  hideChangesContextMenu();
-  textCtxMenuTargetId = annotationId;
-  state.selectedAnnotationId = annotationId;
-  syncPropertyInputs();
-  syncTextCtxMenuFieldsFromItem(loc.item);
-  const bgEl = document.getElementById("ctxTextBg");
-  if (bgEl) bgEl.dataset.ctxTouched = "0";
-
-  menu.classList.remove("hidden");
-  menu.style.minWidth = "260px";
-  void menu.offsetWidth;
-  const rect = menu.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const w = rect.width || 260;
-  const h = rect.height || 220;
-  let mx = event.clientX;
-  let my = event.clientY;
-  mx = Math.min(mx, vw - w - 8);
-  my = Math.min(my, vh - h - 8);
-  menu.style.left = `${Math.max(8, mx)}px`;
-  menu.style.top = `${Math.max(8, my)}px`;
-  // Ne pas re-render si on édite déjà ce texte : sinon le DOM de l’éditeur est recréé et la sélection est perdue.
-  if (state.editingAnnotationId !== annotationId) {
-    renderAnnotations();
-  }
-  syncCtxTextFormatButtons();
-  void refreshTextSpellContextMenu();
-}
-
-function getPlainSelectionOffsetsInEditor(ed) {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || !ed.contains(sel.anchorNode)) {
-    return { start: 0, end: 0, collapsed: true };
-  }
-  const range = sel.getRangeAt(0);
-  const pre = document.createRange();
-  pre.selectNodeContents(ed);
-  pre.setEnd(range.startContainer, range.startOffset);
-  const start = pre.toString().length;
-  pre.selectNodeContents(ed);
-  pre.setEnd(range.endContainer, range.endOffset);
-  const end = pre.toString().length;
-  return { start, end, collapsed: start === end };
-}
-
-function textNodeFormatHit(textNode, ed, kind) {
-  let el = textNode.parentElement;
-  while (el && el !== ed) {
-    const tag = el.tagName;
-    if (kind === "bold" && /^(B|STRONG)$/i.test(tag)) return true;
-    if (kind === "italic" && /^(I|EM|CITE)$/i.test(tag)) return true;
-    if (kind === "underline" && /^U$/i.test(tag)) return true;
-    el = el.parentElement;
-  }
-  const pe = textNode.parentElement;
-  if (!pe) return false;
-  const st = getComputedStyle(pe);
-  if (kind === "bold") {
-    const w = st.fontWeight;
-    return Number.parseInt(w, 10) >= 600;
-  }
-  if (kind === "italic") return st.fontStyle === "italic";
-  if (kind === "underline") return String(st.textDecorationLine || "").includes("underline");
-  return false;
-}
-
-function getFormatCoverage(ed, kind) {
-  if (!ed) return "none";
-  let total = 0;
-  let hit = 0;
-  const tw = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
-  let n;
-  while ((n = tw.nextNode())) {
-    const t = n.nodeValue || "";
-    if (!t.length) continue;
-    total += t.length;
-    if (textNodeFormatHit(n, ed, kind)) hit += t.length;
-  }
-  if (total === 0) return "none";
-  if (hit === 0) return "none";
-  if (hit === total) return "full";
-  return "partial";
-}
-
-function getFormatCoverageFromSanitizedHtml(html, kind) {
-  const div = document.createElement("div");
-  div.setAttribute("style", "position:fixed;left:-9999px;top:0;");
-  div.innerHTML = sanitizeTextHtml(html || "");
-  document.body.appendChild(div);
-  const cov = getFormatCoverage(div, kind);
-  document.body.removeChild(div);
-  return cov;
-}
-
-function setFmtBtnState(id, cov) {
-  const btn = document.getElementById(id);
-  if (!btn) return;
-  btn.classList.remove("fmt-state-none", "fmt-state-partial", "fmt-state-full");
-  btn.classList.add(
-    cov === "full" ? "fmt-state-full" : cov === "partial" ? "fmt-state-partial" : "fmt-state-none"
-  );
-}
-
-function syncCtxTextFormatButtons() {
-  const tab = getActiveTab();
-  if (!tab || !textCtxMenuTargetId) return;
-  const loc = findAnnotationLocation(tab, textCtxMenuTargetId);
-  if (!loc || loc.item.type !== "text") return;
-  const host = annotationLayer?.querySelector(`[data-id="${textCtxMenuTargetId}"]`);
-  const ed = getAnnotationTextEditor(host);
-  const kinds = [
-    ["ctxTextBold", "bold"],
-    ["ctxTextItalic", "italic"],
-    ["ctxTextUnderline", "underline"]
-  ];
-  for (const [id, kind] of kinds) {
-    const cov = ed
-      ? getFormatCoverage(ed, kind)
-      : getFormatCoverageFromSanitizedHtml(loc.item.textHtml || loc.item.text || "", kind);
-    setFmtBtnState(id, cov);
-  }
-}
-
-function replacePlainTextRangeInEditor(ed, start, end, replacement) {
-  if (!ed || start < 0 || end <= start) return false;
-  const a = getTextBoundaryInRoot(ed, start);
-  const b = getTextBoundaryInRoot(ed, end);
-  if (!a || !b) return false;
-  const range = document.createRange();
-  try {
-    range.setStart(a.node, a.offset);
-    range.setEnd(b.node, b.offset);
-  } catch {
-    return false;
-  }
-  range.deleteContents();
-  range.insertNode(document.createTextNode(replacement));
-  return true;
-}
-
-function replacePlainRangeInTextItem(item, start, end, replacement) {
-  const plain = plainTextForAnnotationItem(item);
-  if (start < 0 || end > plain.length) return false;
-  const next = plain.slice(0, start) + replacement + plain.slice(end);
-  item.text = next;
-  delete item.textHtml;
-  delete item._spellErrors;
-  return true;
-}
-
-async function applySpellSuggestionToContextTarget(replacement) {
-  const ctx = globalThis.__maniSpellCtx;
-  const tab = getActiveTab();
-  if (!ctx || !textCtxMenuTargetId || !tab || ctx.replaceStart < 0 || !replacement) return;
-  const loc = findAnnotationLocation(tab, textCtxMenuTargetId);
-  if (!loc?.item || loc.item.type !== "text") return;
-  const item = loc.item;
-  captureSnapshot(tab);
-  const host = annotationLayer?.querySelector(`[data-id="${textCtxMenuTargetId}"]`);
-  const ed = getAnnotationTextEditor(host);
-  if (ed) {
-    replacePlainTextRangeInEditor(ed, ctx.replaceStart, ctx.replaceEnd, replacement);
-    syncTextFromEditor(item, ed);
-  } else {
-    replacePlainRangeInTextItem(item, ctx.replaceStart, ctx.replaceEnd, replacement);
-  }
-  scheduleAutoSave();
-  renderAnnotations();
-  void refreshTextSpellContextMenu();
-}
-
-async function refreshTextSpellContextMenu() {
-  const tab = getActiveTab();
-  if (!tab || !textCtxMenuTargetId) return;
-  const loc = findAnnotationLocation(tab, textCtxMenuTargetId);
-  if (!loc || loc.item.type !== "text") return;
-  const item = loc.item;
-  const lang = getSpellcheckBcp47FromUiLang(state.language);
-  const api = window.maniPdfApi;
-  const statusEl = document.getElementById("ctxSpellStatus");
-  const wordRow = document.getElementById("ctxSpellWordRow");
-  const wordLbl = document.getElementById("ctxSpellWordLabel");
-  const wordVal = document.getElementById("ctxSpellWordValue");
-  const sugEl = document.getElementById("ctxSpellSuggestions");
-  const addBtn = document.getElementById("ctxSpellAddDict");
-  const remBtn = document.getElementById("ctxSpellRemoveDict");
-  if (!api?.spellcheckAnalyze || !sugEl) return;
-
-  const mySeq = ++spellCtxMenuSeq;
-  if (statusEl) statusEl.textContent = t("ctxSpellLoading");
-  if (wordLbl) wordLbl.textContent = `${t("ctxSpellWord")} :`;
-  sugEl.innerHTML = "";
-  if (addBtn) addBtn.classList.add("hidden");
-  if (remBtn) remBtn.classList.add("hidden");
-  if (wordRow) wordRow.classList.add("hidden");
-
-  const hostPre = annotationLayer?.querySelector(`[data-id="${textCtxMenuTargetId}"]`);
-  const edPre = getAnnotationTextEditor(hostPre);
-  let plain = plainTextForAnnotationItem(item);
-  if (edPre) {
-    const rngPlain = document.createRange();
-    rngPlain.selectNodeContents(edPre);
-    plain = String(rngPlain.toString() || "").replace(/\r\n/g, "\n");
-  }
-  let res;
-  try {
-    res = await api.spellcheckAnalyze({ lang, text: plain });
-  } catch {
-    res = { ok: false, errors: [] };
-  }
-  if (mySeq !== spellCtxMenuSeq) return;
-  const errors = res?.ok && Array.isArray(res.errors) ? res.errors : [];
-  logText("spellcheck:ctx", {
-    ok: Boolean(res?.ok),
-    reason: res?.reason,
-    errorsCount: errors.length,
-    plainLen: plain.length
-  });
-
-  const host = annotationLayer?.querySelector(`[data-id="${textCtxMenuTargetId}"]`);
-  const ed = getAnnotationTextEditor(host);
-  let selStart = 0;
-  let selEnd = 0;
-  let hasSel = false;
-  if (ed) {
-    const o = getPlainSelectionOffsetsInEditor(ed);
-    selStart = o.start;
-    selEnd = o.end;
-    hasSel = !o.collapsed;
-  }
-
-  let targetErr = null;
-  let dictWord = null;
-
-  let selectedSingleWord = false;
-  if (hasSel && selEnd > selStart) {
-    const rawSel = plain.slice(selStart, selEnd);
-    const trimmed = rawSel.trim();
-    if (trimmed.length > 0 && !/\s/.test(trimmed)) {
-      selectedSingleWord = true;
-      dictWord = trimmed.replace(/^['']+|['']+$/gu, "");
-      targetErr =
-        errors.find((e) => e.word === dictWord || (e.start >= selStart && e.end <= selEnd + 1)) || null;
-    }
-  }
-  if (!targetErr && errors.length > 0 && !(selectedSingleWord && dictWord)) {
-    targetErr = errors[0];
-  }
-  if (dictWord == null && targetErr) {
-    dictWord = targetErr.word;
-  }
-
-  globalThis.__maniSpellCtx = {
-    replaceStart: targetErr ? targetErr.start : -1,
-    replaceEnd: targetErr ? targetErr.end : -1,
-    targetWord: targetErr ? targetErr.word : null,
-    dictWord: dictWord || (targetErr ? targetErr.word : null)
-  };
-
-  if (statusEl) {
-    if (!res?.ok) {
-      statusEl.textContent = t("ctxSpellDictUnavailable");
-    } else {
-      statusEl.textContent = errors.length === 0 ? t("ctxSpellNoIssue") : "";
-    }
-  }
-
-  if (targetErr && wordRow && wordVal) {
-    wordRow.classList.remove("hidden");
-    wordVal.textContent = targetErr.word;
-  }
-
-  if (targetErr && Array.isArray(targetErr.suggestions) && targetErr.suggestions.length) {
-    const lab = document.createElement("div");
-    lab.className = "ctx-spell-sug-label";
-    lab.textContent = t("ctxSpellReplace");
-    sugEl.appendChild(lab);
-    targetErr.suggestions.forEach((sug) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = sug;
-      b.addEventListener("click", () => {
-        void applySpellSuggestionToContextTarget(sug);
-      });
-      sugEl.appendChild(b);
-    });
-  }
-
-  const dw = globalThis.__maniSpellCtx?.dictWord;
-  if (dw && addBtn && remBtn && api.spellcheckIsCustomWord) {
-    try {
-      const r = await api.spellcheckIsCustomWord(dw);
-      if (mySeq !== spellCtxMenuSeq) return;
-      addBtn.classList.add("hidden");
-      remBtn.classList.add("hidden");
-      if (r?.ok && r.inDictionary) {
-        remBtn.textContent = t("ctxSpellRemoveDict");
-        remBtn.classList.remove("hidden");
-        remBtn.onclick = async () => {
-          await api.spellcheckRemoveWord(dw);
-          void refreshTextSpellContextMenu();
-          runBackgroundSpellScanForTextAnnotations();
-        };
-      } else if (targetErr) {
-        addBtn.textContent = t("ctxSpellAddDict");
-        addBtn.classList.remove("hidden");
-        addBtn.onclick = async () => {
-          await api.spellcheckAddWord(dw);
-          void refreshTextSpellContextMenu();
-          runBackgroundSpellScanForTextAnnotations();
-        };
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-function runBackgroundSpellScanForTextAnnotations() {
-  const tab = getActiveTab();
-  const api = window.maniPdfApi;
-  if (!tab || !api?.spellcheckAnalyze) return;
-  const lang = getSpellcheckBcp47FromUiLang(state.language);
-  const page = String(tab.currentPage || 1);
-  const list = tab.annotationsByPage[page] || [];
-  list.forEach((a) => {
-    if (a.type !== "text") return;
-    const plain = plainTextForAnnotationItem(a);
-    api.spellcheckAnalyze({ lang, text: plain }).then((res) => {
-      const errors = res?.ok && Array.isArray(res.errors) ? res.errors : [];
-      logText("spellcheck:scan", {
-        id: a.id,
-        ok: Boolean(res?.ok),
-        reason: res?.reason,
-        errorsCount: errors.length,
-        plainLen: plain.length
-      });
-      a._spellErrors = errors.map((e) => ({ start: e.start, end: e.end }));
-      const n = errors.length;
-      const node = annotationLayer?.querySelector(`[data-id="${a.id}"]`);
-      if (!node || a.type !== "text") return;
-      if (state.editingAnnotationId === a.id) {
-        delete node.dataset.spellIssues;
-        return;
-      }
-      if (n > 0) node.dataset.spellIssues = String(n);
-      else delete node.dataset.spellIssues;
-      if (!node.querySelector?.(".text-editor")) {
-        if (a.textHtml && String(a.textHtml).trim()) {
-          node.innerHTML = sanitizeTextHtml(a.textHtml);
-        } else {
-          node.textContent = a.text ? a.text : "";
-        }
-        applySpellHighlightsToTextDisplayNode(node, a);
-      }
-    });
-  });
-}
-
-function ctxMenuExecFormat(cmd) {
-  if (!textCtxMenuTargetId) return;
-  const tid = textCtxMenuTargetId;
-  if (state.editingAnnotationId !== tid) {
-    state.editingAnnotationId = tid;
-    state.selectedAnnotationId = tid;
-    renderAnnotations();
-  }
-  const host = annotationLayer?.querySelector?.(`[data-id="${tid}"]`);
-  const ed = getAnnotationTextEditor(host);
-  if (!ed || ed.contentEditable !== "true") return;
-  ed.focus();
-  const sel = window.getSelection();
-  if (!sel) return;
-  if (sel.isCollapsed) {
-    const range = document.createRange();
-    range.selectNodeContents(ed);
-    sel.removeAllRanges();
-    sel.addRange(range);
-  } else if (!ed.contains(sel.anchorNode) || !ed.contains(sel.focusNode)) {
-    return;
-  }
-  try {
-    document.execCommand(cmd, false, null);
-  } catch {}
-  const tab = getActiveTab();
-  const loc = tab ? findAnnotationLocation(tab, tid) : null;
-  if (loc?.item) {
-    captureSnapshot(tab);
-    syncTextFromEditor(loc.item, ed);
-    scheduleAutoSave();
-  }
-  syncCtxTextFormatButtons();
-}
-
-let textCtxMenuWired = false;
-function wireTextAnnotationCtxMenu() {
-  if (textCtxMenuWired) return;
-  const menu = ensureTextAnnotationCtxMenuEl();
-  const dst = document.getElementById("ctxTextFont");
-  if (!menu || !dst || !propFontFamily) return;
-  if (!dst.options.length) {
-    dst.innerHTML = propFontFamily.innerHTML;
-  }
-  const size = document.getElementById("ctxTextSize");
-  const bg = document.getElementById("ctxTextBg");
-  const validateColBtn = document.getElementById("ctxValidateTextColorBtn");
-  const validateBgBtn = document.getElementById("ctxValidateTextBgBtn");
-  const clearBg = document.getElementById("ctxTextBgClear");
-  const bindLive = (id, fn) => {
-    const el = document.getElementById(id);
-    el?.addEventListener?.("input", fn);
-    el?.addEventListener?.("change", fn);
-  };
-  bindLive("ctxTextRotation", () => applyTextCtxMenuBoxProps());
-  bindLive("ctxTextOpacity", () => applyTextCtxMenuBoxProps());
-  dst.addEventListener("change", () => applyTextCtxMenuBoxProps());
-  size?.addEventListener?.("input", () => applyTextCtxMenuBoxProps());
-  validateColBtn?.addEventListener?.("click", () => applyTextCtxMenuBoxProps());
-  validateBgBtn?.addEventListener?.("click", () => {
-    try {
-      if (bg) bg.dataset.ctxTouched = "1";
-      document.getElementById("ctxTextBgLabel")?.classList?.remove?.("is-transparent");
-    } catch {}
-    applyTextCtxMenuBoxProps();
-  });
-  clearBg?.addEventListener?.("click", () => {
-    const tab = getActiveTab();
-    if (!tab || !textCtxMenuTargetId) return;
-    const loc = findAnnotationLocation(tab, textCtxMenuTargetId);
-    if (!loc?.item) return;
-    captureSnapshot(tab);
-    loc.item.bgColor = null;
-    if (bg) {
-      bg.value = "#ffffff";
-      bg.dataset.ctxTouched = "0";
-    }
-    document.getElementById("ctxTextBgLabel")?.classList?.add?.("is-transparent");
-    if (propBgColor) {
-      propBgColor.value = "#ffffff";
-      propBgColor.dataset.touched = "0";
-      propBgColorLabel?.classList?.add?.("is-transparent");
-    }
-    renderAnnotations();
-    scheduleAutoSave();
-  });
-  ["ctxTextBold", "ctxTextItalic", "ctxTextUnderline"].forEach((id) => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    btn.addEventListener("mousedown", (ev) => {
-      ev.preventDefault();
-      const c = btn.dataset.cmd;
-      if (c) ctxMenuExecFormat(c);
-    });
-  });
-  textCtxMenuWired = true;
-}
-
-// ---------------------------
-// Menu contextuel (forme sélectionnée)
-// ---------------------------
-let shapeAnnotationCtxMenuEl = null;
-let shapeCtxMenuTargetId = null;
-
-function ensureShapeAnnotationCtxMenuEl() {
-  if (shapeAnnotationCtxMenuEl) return shapeAnnotationCtxMenuEl;
-  shapeAnnotationCtxMenuEl = document.getElementById("shapeAnnotationCtxMenu");
-  return shapeAnnotationCtxMenuEl;
-}
-
-function hideShapeAnnotationCtxMenu() {
-  try {
-    logText("ctxShapeMenuHide", { hadTarget: Boolean(shapeCtxMenuTargetId) });
-  } catch {
-    /* ignore */
-  }
-  try {
-    ensureShapeAnnotationCtxMenuEl()?.classList?.add?.("hidden");
-  } catch {}
-  shapeCtxMenuTargetId = null;
-  globalThis.__maniCtxShapeBackup = undefined;
-}
-
-let imageAnnotationCtxMenuEl = null;
-let imageCtxMenuTargetId = null;
-
-function ensureImageAnnotationCtxMenuEl() {
-  if (!imageAnnotationCtxMenuEl) imageAnnotationCtxMenuEl = document.getElementById("imageAnnotationCtxMenu");
-  return imageAnnotationCtxMenuEl;
-}
-
-function hideImageAnnotationCtxMenu() {
-  try {
-    ensureImageAnnotationCtxMenuEl()?.classList?.add?.("hidden");
-  } catch {}
-  imageCtxMenuTargetId = null;
-}
-
-function syncImageCtxMenuFromItem(item) {
-  const rot = document.getElementById("ctxImageRotation");
-  const op = document.getElementById("ctxImageOpacity");
-  if (rot) rot.value = String(Math.round(item.rotation || 0));
-  if (op) op.value = String(Math.round(item.opacity ?? 100));
-}
-
-function applyImageCtxMenuProps() {
-  const tab = getActiveTab();
-  if (!tab || !imageCtxMenuTargetId) return;
-  const loc = findAnnotationLocation(tab, imageCtxMenuTargetId);
-  if (!loc || loc.item.type !== "image") return;
-  const item = loc.item;
-  captureSnapshot(tab);
-  const rot = document.getElementById("ctxImageRotation");
-  const op = document.getElementById("ctxImageOpacity");
-  if (rot) item.rotation = Math.max(0, Math.min(360, Number(rot.value) || 0));
-  if (op) item.opacity = Math.max(0, Math.min(100, Number(op.value) || 100));
-  renderAnnotations();
-  scheduleAutoSave();
-}
-
-function openImageAnnotationCtxMenu(event, annotationId) {
-  commitActiveTextEditIfNeeded(annotationId);
-  cancelPointerInteraction();
-  const menu = ensureImageAnnotationCtxMenuEl();
-  if (!menu) return;
-  const tab = getActiveTab();
-  if (!tab) return;
-  const loc = findAnnotationLocation(tab, annotationId);
-  if (!loc || loc.item.type !== "image") return;
-  hideTextAnnotationCtxMenu();
-  hideShapeAnnotationCtxMenu();
-  hideChangesContextMenu();
-  imageCtxMenuTargetId = annotationId;
-  state.selectedAnnotationId = annotationId;
-  syncPropertyInputs();
-  syncImageCtxMenuFromItem(loc.item);
-  menu.classList.remove("hidden");
-  menu.style.minWidth = "240px";
-  void menu.offsetWidth;
-  const rect = menu.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const w = rect.width || 240;
-  const h = rect.height || 100;
-  let mx = event.clientX;
-  let my = event.clientY;
-  mx = Math.min(mx, vw - w - 8);
-  my = Math.min(my, vh - h - 8);
-  menu.style.left = `${Math.max(8, mx)}px`;
-  menu.style.top = `${Math.max(8, my)}px`;
-  renderAnnotations();
-}
-
-let imageCtxMenuWired = false;
-function wireImageAnnotationCtxMenu() {
-  if (imageCtxMenuWired) return;
-  if (!ensureImageAnnotationCtxMenuEl()) return;
-  const bindLive = (id, fn) => {
-    const el = document.getElementById(id);
-    el?.addEventListener?.("input", fn);
-    el?.addEventListener?.("change", fn);
-  };
-  bindLive("ctxImageRotation", () => applyImageCtxMenuProps());
-  bindLive("ctxImageOpacity", () => applyImageCtxMenuProps());
-  imageCtxMenuWired = true;
-}
-
-function syncShapeCtxMenuFromItem(item) {
-  mergeShapeStyleFields(item);
-  const rotEl = document.getElementById("ctxShapeRotation");
-  const opEl = document.getElementById("ctxShapeOpacity");
-  if (rotEl) rotEl.value = String(Math.round(item.rotation || 0));
-  if (opEl) opEl.value = String(Math.round(item.opacity ?? 100));
-  const fill = document.getElementById("ctxShapeFill");
-  const fillOp = document.getElementById("ctxShapeFillOp");
-  const stroke = document.getElementById("ctxShapeStroke");
-  const strokeOp = document.getElementById("ctxShapeStrokeOp");
-  const strokeW = document.getElementById("ctxShapeStrokeW");
-  const bd = document.getElementById("ctxShapeBackdrop");
-  const bdOp = document.getElementById("ctxShapeBackdropOp");
-  if (fill) fill.value = item.fillColor || "#000000";
-  if (fillOp) fillOp.value = String(Math.round((Number(item.fillAlpha) ?? 0) * 100));
-  if (stroke) stroke.value = item.strokeColor || "#000000";
-  if (strokeOp) strokeOp.value = String(Math.round((Number(item.strokeAlpha) ?? 1) * 100));
-  if (strokeW) strokeW.value = String(Math.max(0, Math.floor(Number(item.strokeWidth) || 0)));
-  const bdTr = !item.backdropColor || (Number(item.backdropAlpha) ?? 0) < 0.001;
-  if (bd) bd.value = bdTr ? "#ffffff" : item.backdropColor;
-  if (bdOp) bdOp.value = String(Math.round((Number(item.backdropAlpha) ?? 0) * 100));
-  try {
-    window.syncManiColorSwatches?.();
-  } catch {
-    /* ignore */
-  }
-}
-
-function applyShapeCtxMenuProps() {
-  const tab = getActiveTab();
-  if (!tab || !shapeCtxMenuTargetId) return;
-  const loc = findAnnotationLocation(tab, shapeCtxMenuTargetId);
-  if (!loc || !SHAPE_TYPES.has(loc.item.type)) return;
-  const item = loc.item;
-  captureSnapshot(tab);
-  mergeShapeStyleFields(item);
-
-  const prevFill = item.fillColor;
-  const prevStroke = item.strokeColor;
-  const prevBackdrop = item.backdropColor;
-
-  const fill = document.getElementById("ctxShapeFill");
-  const fillOp = document.getElementById("ctxShapeFillOp");
-  const stroke = document.getElementById("ctxShapeStroke");
-  const strokeOp = document.getElementById("ctxShapeStrokeOp");
-  const strokeW = document.getElementById("ctxShapeStrokeW");
-  const bd = document.getElementById("ctxShapeBackdrop");
-  const bdOp = document.getElementById("ctxShapeBackdropOp");
-
-  if (fill) item.fillColor = fill.value || item.fillColor;
-  if (fillOp) {
-    let op = clamp(Number(fillOp.value) / 100, 0, 1);
-    if (op < 0.001 && item.fillColor !== prevFill) {
-      op = defaultShapeFillAlphaAfterClear(item.type);
-      fillOp.value = String(Math.round(op * 100));
-    }
-    item.fillAlpha = op;
-  }
-
-  if (stroke) item.strokeColor = stroke.value || item.strokeColor;
-  if (strokeOp) {
-    let op = clamp(Number(strokeOp.value) / 100, 0, 1);
-    if (op < 0.001 && item.strokeColor !== prevStroke) {
-      op = 1;
-      strokeOp.value = "100";
-      if ((Number(item.strokeWidth) || 0) < 1) {
-        item.strokeWidth = 2;
-        if (strokeW) strokeW.value = "2";
-      }
-    }
-    item.strokeAlpha = op;
-  }
-  if (strokeW) item.strokeWidth = clamp(Math.floor(Number(strokeW.value) || 0), 0, 24);
-
-  const rotM = document.getElementById("ctxShapeRotation");
-  const opM = document.getElementById("ctxShapeOpacity");
-  if (rotM) item.rotation = Math.max(0, Math.min(360, Number(rotM.value) || 0));
-  if (opM) item.opacity = Math.max(0, Math.min(100, Number(opM.value) || 100));
-
-  if (bd && bd.dataset.ctxTouched === "1") {
-    item.backdropColor = bd.value || null;
-  }
-  if (bdOp) {
-    let op = clamp(Number(bdOp.value) / 100, 0, 1);
-    const colorPicked =
-      bd &&
-      bd.dataset.ctxTouched === "1" &&
-      item.backdropColor &&
-      item.backdropColor !== prevBackdrop;
-    if (op < 0.001 && colorPicked) {
-      op = 0.3;
-      bdOp.value = "30";
-    }
-    item.backdropAlpha = op;
-  }
-
-  if ((Number(item.backdropAlpha) || 0) < 0.001) {
-    item.backdropColor = null;
-  } else if (!item.backdropColor && bd) {
-    item.backdropColor = bd.value || "#ffffff";
-  }
-  if (propShapeFill) propShapeFill.value = item.fillColor || "#000000";
-  if (propShapeFillOpacity) propShapeFillOpacity.value = String(Math.round((Number(item.fillAlpha) ?? 0) * 100));
-  if (propShapeStroke) propShapeStroke.value = item.strokeColor || "#000000";
-  if (propShapeStrokeOpacity) propShapeStrokeOpacity.value = String(Math.round((Number(item.strokeAlpha) ?? 1) * 100));
-  if (propShapeStrokeWidth) propShapeStrokeWidth.value = String(Math.max(0, Math.floor(Number(item.strokeWidth) || 0)));
-  if (propShapeBackdrop) propShapeBackdrop.value = !item.backdropColor ? "#ffffff" : item.backdropColor;
-  if (propShapeBackdropOpacity) propShapeBackdropOpacity.value = String(Math.round((Number(item.backdropAlpha) ?? 0) * 100));
-  renderAnnotations();
-  scheduleAutoSave();
-}
-
-function openShapeAnnotationCtxMenu(event, annotationId) {
-  commitActiveTextEditIfNeeded(annotationId);
-  cancelPointerInteraction();
-  const menu = ensureShapeAnnotationCtxMenuEl();
-  if (!menu) return;
-  const tab = getActiveTab();
-  if (!tab) return;
-  const loc = findAnnotationLocation(tab, annotationId);
-  if (!loc || !SHAPE_TYPES.has(loc.item.type)) return;
-  hideTextAnnotationCtxMenu();
-  hideImageAnnotationCtxMenu();
-  hideChangesContextMenu();
-  shapeCtxMenuTargetId = annotationId;
-  state.selectedAnnotationId = annotationId;
-  syncPropertyInputs();
-  syncShapeCtxMenuFromItem(loc.item);
-  const bd = document.getElementById("ctxShapeBackdrop");
-  if (bd) bd.dataset.ctxTouched = "0";
-
-  menu.classList.remove("hidden");
-  menu.style.minWidth = "280px";
-  void menu.offsetWidth;
-  const rect = menu.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const w = rect.width || 280;
-  const h = rect.height || 320;
-  let mx = event.clientX;
-  let my = event.clientY;
-  mx = Math.min(mx, vw - w - 8);
-  my = Math.min(my, vh - h - 8);
-  menu.style.left = `${Math.max(8, mx)}px`;
-  menu.style.top = `${Math.max(8, my)}px`;
-  renderAnnotations();
-}
-
-let shapeCtxMenuWired = false;
-function wireShapeAnnotationCtxMenu() {
-  if (shapeCtxMenuWired) return;
-  const menu = ensureShapeAnnotationCtxMenuEl();
-  if (!menu) return;
-  const bindLive = (id, fn) => {
-    const el = document.getElementById(id);
-    el?.addEventListener?.("input", fn);
-    el?.addEventListener?.("change", fn);
-  };
-  bindLive("ctxShapeFillOp", () => applyShapeCtxMenuProps());
-  bindLive("ctxShapeStrokeOp", () => applyShapeCtxMenuProps());
-  bindLive("ctxShapeStrokeW", () => applyShapeCtxMenuProps());
-  bindLive("ctxShapeRotation", () => applyShapeCtxMenuProps());
-  bindLive("ctxShapeOpacity", () => applyShapeCtxMenuProps());
-  document.getElementById("ctxValidateShapeFillBtn")?.addEventListener?.("click", () => applyShapeCtxMenuProps());
-  document.getElementById("ctxValidateShapeStrokeBtn")?.addEventListener?.("click", () => applyShapeCtxMenuProps());
-  const bd = document.getElementById("ctxShapeBackdrop");
-  document.getElementById("ctxValidateShapeBackdropBtn")?.addEventListener?.("click", () => {
-    try {
-      if (bd) bd.dataset.ctxTouched = "1";
-    } catch {}
-    applyShapeCtxMenuProps();
-  });
-  bindLive("ctxShapeBackdropOp", () => applyShapeCtxMenuProps());
-
-  document.getElementById("ctxShapeFillClear")?.addEventListener?.("click", () => {
-    const tab = getActiveTab();
-    if (!tab || !shapeCtxMenuTargetId) return;
-    const loc = findAnnotationLocation(tab, shapeCtxMenuTargetId);
-    if (!loc?.item || !SHAPE_TYPES.has(loc.item.type)) return;
-    captureSnapshot(tab);
-    loc.item.fillAlpha = 0;
-    syncShapeCtxMenuFromItem(loc.item);
-    syncPropertyInputs();
-    renderAnnotations();
-    scheduleAutoSave();
-  });
-  document.getElementById("ctxShapeStrokeClear")?.addEventListener?.("click", () => {
-    const tab = getActiveTab();
-    if (!tab || !shapeCtxMenuTargetId) return;
-    const loc = findAnnotationLocation(tab, shapeCtxMenuTargetId);
-    if (!loc?.item || !SHAPE_TYPES.has(loc.item.type)) return;
-    captureSnapshot(tab);
-    loc.item.strokeAlpha = 0;
-    syncShapeCtxMenuFromItem(loc.item);
-    syncPropertyInputs();
-    renderAnnotations();
-    scheduleAutoSave();
-  });
-  document.getElementById("ctxShapeBackdropClear")?.addEventListener?.("click", () => {
-    const tab = getActiveTab();
-    if (!tab || !shapeCtxMenuTargetId) return;
-    const loc = findAnnotationLocation(tab, shapeCtxMenuTargetId);
-    if (!loc?.item || !SHAPE_TYPES.has(loc.item.type)) return;
-    captureSnapshot(tab);
-    loc.item.backdropColor = null;
-    loc.item.backdropAlpha = 0;
-    if (bd) {
-      bd.value = "#ffffff";
-      bd.dataset.ctxTouched = "0";
-    }
-    syncShapeCtxMenuFromItem(loc.item);
-    syncPropertyInputs();
-    renderAnnotations();
-    scheduleAutoSave();
-  });
-  shapeCtxMenuWired = true;
-}
+// Menus contextuels forme + image : `renderer-shape-image-ctx-menu.js` — `sim`, `sim.bind()` avant `tcm.bind()`.
 
 function ensureMeasureTextNode() {
   if (measureTextNode) return measureTextNode;
@@ -1839,888 +702,15 @@ function scheduleAutoGrowText(tab, item, node, source = "render") {
   });
 }
 
-const I18N = {
-  fr: {
-    appName: "Editify",
-    welcomeTitle: "Bienvenue dans Editify",
-    language: "🌐 Langue: FR",
-    open: "📂 Ouvrir PDF",
-    addText: "🔤 + Texte",
-    addShape: "🔷 + Forme",
-    addImage: "🖼️ + Image",
-    del: "🗑️ Supprimer",
-    undo: "↶ Annuler",
-    redo: "↷ Rétablir",
-    merge: "🧩 Fusion",
-    split: "✂️ Diviser",
-    compress: "🗜️ Compression",
-    protect: "🔒 Protéger",
-    unprotect: "🔓 Déprotéger",
-    fileMenu: "Fichier ▾",
-    optionsMenu: "Options ▾",
-    menuLang: "Langue",
-    menuTools: "Outils PDF",
-    menuInfo: "Infos",
-    openPdf: "📂 Ouvrir PDF",
-    saveAs: "💾 Enregistrer sous…",
-    quit: "✕ Quitter",
-    about: "❔ À propos",
-    thumbs: "Miniatures",
-    changes: "Ajouts",
-    pageWord: "Page",
-    noAdds: "Aucun ajout",
-    noAddsDoc: "Aucun ajout sur ce document.",
-    jobsNone: "Aucun job.",
-    sensitiveNone: "Aucune action sensible.",
-    aboutTitle: "À propos",
-    aboutCreditsHtml:
-      'Créé par <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) et <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) dans le cadre du stage de Rafael.',
-    rgpdHtml: "<strong>RGPD</strong> : l’application est <strong>100% locale</strong> — aucune donnée ne quitte le poste de l’utilisateur (pas d’envoi vers un serveur).",
-    prevPage: "◀ Page -",
-    nextPage: "Page + ▶",
-    cancel: "Annuler",
-    retry: "Relancer",
-    width: "Largeur",
-    height: "Hauteur",
-    rotation: "Rotation",
-    opacity: "Opacite (%)",
-    txt: "Txt",
-    bg: "Fond",
-    pad: "Marges",
-    font: "Police",
-    size: "Taille",
-    apply: "✅ Appliquer",
-    validate: "✅ Valider",
-    fitW: "↔️ Ajuster largeur",
-    fitP: "🗐 Ajuster page",
-    noPdf: "Aucun PDF",
-    ready: "Pret",
-    choose: "Choisir la langue:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
-    f10Toolbar: "Appelez la barre de menu avec F10 (afficher / masquer).",
-    shapeFill: "Remplissage",
-    shapeFillOp: "Opacite remplissage (%)",
-    shapeStroke: "Contour",
-    shapeStrokeOp: "Opacite contour (%)",
-    shapeStrokeW: "Epaisseur contour (px)",
-    shapeBackdrop: "Fond derriere la forme",
-    shapeBackdropOp: "Opacite fond (%)",
-    ctxSpellTitle: "Orthographe",
-    ctxSpellWord: "Mot",
-    ctxSpellReplace: "Remplacer par",
-    ctxSpellAddDict: "Ajouter au dictionnaire",
-    ctxSpellRemoveDict: "Retirer du dictionnaire",
-    ctxSpellNoIssue: "Aucune erreur detectee.",
-    ctxSpellDictUnavailable: "Correcteur indisponible (dictionnaire non charge).",
-    ctxSpellLoading: "Verification…",
-    welcomeSubtitleHtml:
-      "Ouvre un PDF via la barre <strong>Fichier</strong> (visible en plein ecran, ou avec <strong>F10</strong>) ou le menu <strong>Fichier &gt; Ouvrir PDF</strong> pour commencer.",
-    thumbAddsCount: "{{n}} ajout(s)",
-    changePageLine: "Page {{n}}",
-    annElem: "Element",
-    annTextWin: "Fenetre texte",
-    annImage: "Image",
-    shapeRect: "Rectangle",
-    shapeEllipse: "Ellipse",
-    shapeTriangle: "Triangle",
-    shapeLine: "Ligne",
-    shapeDiamond: "Losange",
-    shapePentagon: "Pentagone",
-    shapeHexagon: "Hexagone",
-    shapeOctagon: "Octogone",
-    shapeStar: "Etoile",
-    shapeArrow: "Fleche",
-    shapeHeart: "Coeur",
-    shapeCross: "Croix",
-    shapeParallelogram: "Parallelogramme",
-    shapeTrapezoid: "Trapeze",
-    emptyTextPreview: "(texte vide)",
-    imageAdded: "Image ajoutee",
-    imageNamed: "Image: {{name}}",
-    shapeSummaryPrefix: "Forme: {{label}}",
-    splitWorkspaceTitle: "Split — repartition des pages",
-    splitWorkspaceHint:
-      "Miniatures par page. Glissez entre les groupes (Shift / Ctrl pour la selection). Valider pour creer un PDF par groupe. Brouillon enregistre automatiquement.",
-    splitAddGroup: "+ Groupe",
-    splitValidate: "Valider",
-    splitGroupLabel: "Groupe",
-    splitDeleteGroup: "Supprimer",
-    splitGroupNameAria: "Nom du groupe",
-    splitThumbPage: "p. {{n}}",
-    splitGroupNumbered: "groupe {{n}}",
-    splitDefaultBaseName: "groupe",
-    shapePickerTitle: "Choisir une forme",
-    shapeBtnRect: "Rectangle",
-    shapeBtnEllipse: "Ellipse",
-    shapeBtnTriangle: "Triangle",
-    shapeBtnLine: "Ligne",
-    shapeBtnDiamond: "Losange",
-    shapeBtnPentagon: "Pentagone",
-    shapeBtnHexagon: "Hexagone",
-    shapeBtnOctagon: "Octogone",
-    shapeBtnStar: "Etoile",
-    shapeBtnArrow: "Fleche",
-    shapeBtnHeart: "Coeur",
-    shapeBtnCross: "Croix",
-    shapeBtnParallelogram: "Parallelogramme",
-    shapeBtnTrapezoid: "Trapeze",
-    ctxMenuText: "Texte",
-    ctxMenuShape: "Forme",
-    ctxMenuImage: "Image",
-    ctxBlankTitle: "Ajouter",
-    blankAddText: "Ajouter texte",
-    blankAddShape: "Ajouter forme",
-    blankAddImage: "Ajouter image",
-    maniColorTitle: "Couleur",
-    maniColorValidate: "Valider",
-    maniColorEyedropper: "Pipette",
-    propMargins: "Marges",
-    closeAria: "Fermer",
-    ttToolbarFile: "Fichier : ouvrir, enregistrer sous, quitter.",
-    ttToolbarOpenPdf: "Ouvre un fichier PDF.",
-    ttToolbarSaveAs: "Enregistre un nouveau PDF (Ctrl+S).",
-    ttToolbarQuit: "Ferme l'application.",
-    ttToolbarOptions: "Options : langue, etc.",
-    ttMerge: "Fusionne les PDFs ouverts en un seul fichier.",
-    ttSplit: "Divise le PDF actif en plusieurs groupes de pages.",
-    ttCompress: "Cree une version compressee du PDF actif.",
-    ttProtect: "Protege le PDF actif avec un mot de passe.",
-    ttUnprotect: "Retire la protection d'un PDF avec son mot de passe.",
-    ttAboutMenu: "Informations sur Editify.",
-    ttAboutBtn: "A propos d'Editify",
-    ttCloseApp: "Fermer l'application",
-    ttAddText: "Ajoute une zone de texte modifiable sur la page active.",
-    ttAddShape: "Ajoute une forme : clique puis choisis la forme dans la liste.",
-    ttAddImage: "Insere une image locale dans le document.",
-    ttDelete: "Supprime l'element actuellement selectionne.",
-    ttUndo: "Annule la derniere modification.",
-    ttRedo: "Retablit la modification annulee.",
-    ttFitWidth: "Ajuste le PDF a la largeur de la fenetre.",
-    ttFitPage: "Ajuste le PDF entier dans la fenetre.",
-    ttValidateTextColor: "Applique la couleur de texte selectionnee.",
-    ttValidateBg: "Applique la couleur de fond selectionnee.",
-    ttApplyProps: "Applique les proprietes au champ texte selectionne.",
-    ttPrevPage: "Affiche la page precedente.",
-    ttNextPage: "Affiche la page suivante.",
-    ttZoomOut: "Dezoome le document. Raccourci : Ctrl + molette.",
-    ttZoomIn: "Zoome le document. Raccourci : Ctrl + molette.",
-    stLinkOpenFailed: "Impossible d'ouvrir le lien automatiquement. Copiez/collez l'URL.",
-    stSessionRecovered: "Session reparee.",
-    stPythonUnavailable: "Service Python indisponible.",
-    stPythonMissingPypdf: "Attention : pypdf absent. Installez-le : python -m pip install pypdf",
-    stPdfRenderError: "Erreur rendu PDF.",
-    stZoomFitPage: "Affichage ajuste a la page",
-    stZoomFitWidth: "Affichage ajuste a la largeur",
-    stRendering: "Rendu pages {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF charge — Cliquez sur + Texte pour annoter",
-    stPdfLoadedNamed: "PDF charge : {{name}}",
-    stPdfLoadedHint2: "PDF charge — Cliquez sur + Texte pour annoter",
-    stSelectionCancelled: "Selection annulee.",
-    stSplitNoPdf: "Split : aucun PDF actif.",
-    stSplitNotReady: "Split : document non pret.",
-    stSplitNoPages: "Split : aucun groupe avec des pages.",
-    stMergeNeedTwo: "Fusion : ouvrez au moins 2 PDF.",
-    stCompressNoPdf: "Compression : aucun PDF actif.",
-    stProtectNoPdf: "Protect : aucun PDF actif.",
-    stProtectCancelled: "Protect annule (mot de passe requis).",
-    stUnprotectNoPdf: "Unprotect : aucun PDF actif.",
-    stUnprotectCancelled: "Unprotect annule.",
-    stSaveAsNoPdf: "Enregistrer sous : aucun PDF actif.",
-    stSaveAsCancelled: "Enregistrer sous annule.",
-    stExporting: "Export PDF…",
-    stExported: "PDF exporte.",
-    stExportFailed: "Export PDF echoue.",
-    stCopied: "Element copie",
-    stCut: "Element coupe",
-    stPasted: "Element colle",
-    stJobRefused: "Job refuse.",
-    stMergeJobAdded: "Job fusion ajoute.",
-    stSplitJobAdded: "Job split (groupes) ajoute.",
-    stCompressJobAdded: "Job compression ajoute.",
-    stProtectJobAdded: "Job protect ajoute.",
-    stUnprotectJobAdded: "Job unprotect ajoute.",
-    ctxRotationDeg: "Rotation (°)",
-    ctxOpacityPctLabel: "Opacite (%)",
-    ctxShapeFillClear: "Remplissage transparent",
-    ctxShapeStrokeClear: "Contour transparent",
-    ctxShapeBackdropClear: "Fond transparent",
-    ctxMenuColor: "Couleur",
-    ctxStrokeWidthPx: "Epaisseur (px)",
-    ctxShapeBackdropShort: "Fond derriere",
-    ctxTextBgClear: "Fond transparent",
-    promptProtectPassword: "Mot de passe de protection",
-    promptUnprotectPassword: "Mot de passe actuel",
-    ctxFmtBold: "Gras",
-    ctxFmtItalic: "Italique",
-    ctxFmtUnderline: "Souligne",
-    ariaWorkbench: "Espace de travail",
-    ariaNavPages: "Navigation pages",
-    ariaZoom: "Controles de zoom",
-    toastAria: "Notifications",
-    ariaAppToolbar: "Barre d'outils application",
-    shapeModalAria: "Choix de forme",
-    maniColorRgbAria: "Valeurs RGB"
-  },
-  en: {
-    menuLang: "Language",
-    menuTools: "PDF tools",
-    menuInfo: "Info",
-    openPdf: "📂 Open PDF",
-    saveAs: "💾 Save as…",
-    quit: "✕ Quit",
-    about: "❔ About",
-    thumbs: "Thumbnails",
-    changes: "Changes",
-    pageWord: "Page",
-    noAdds: "No adds",
-    noAddsDoc: "No adds on this document.",
-    jobsNone: "No jobs.",
-    sensitiveNone: "No sensitive actions.",
-    aboutTitle: "About",
-    aboutCreditsHtml:
-      'Created by <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) and <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) as part of Rafael’s internship.',
-    rgpdHtml: "<strong>GDPR</strong>: the app is <strong>100% local</strong> — no data leaves the user's device (no server upload).",
-    prevPage: "◀ Page -",
-    nextPage: "Page + ▶",
-    cancel: "Cancel",
-    retry: "Retry",
-    appName: "Editify",
-    welcomeTitle: "Welcome to Editify",
-    language: "🌐 Language: EN",
-    open: "📂 Open PDF",
-    addText: "🔤 + Text",
-    addShape: "🔷 + Shape",
-    addImage: "🖼️ + Image",
-    del: "🗑️ Delete",
-    undo: "↶ Undo",
-    redo: "↷ Redo",
-    merge: "🧩 Merge",
-    split: "✂️ Split",
-    compress: "🗜️ Compress",
-    protect: "🔒 Protect",
-    unprotect: "🔓 Unprotect",
-    fileMenu: "File ▾",
-    optionsMenu: "Options ▾",
-    width: "Width",
-    height: "Height",
-    rotation: "Rotation",
-    opacity: "Opacity (%)",
-    txt: "Text",
-    bg: "Background",
-    pad: "Padding",
-    font: "Font",
-    size: "Size",
-    apply: "✅ Apply",
-    validate: "✅ Apply",
-    fitW: "↔️ Fit width",
-    fitP: "🗐 Fit page",
-    noPdf: "No PDF",
-    ready: "Ready",
-    choose: "Choose language:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
-    f10Toolbar: "Press F10 to show or hide the menu toolbar.",
-    shapeFill: "Fill",
-    shapeFillOp: "Fill opacity (%)",
-    shapeStroke: "Outline",
-    shapeStrokeOp: "Outline opacity (%)",
-    shapeStrokeW: "Outline width (px)",
-    shapeBackdrop: "Backdrop behind shape",
-    shapeBackdropOp: "Backdrop opacity (%)",
-    ctxSpellTitle: "Spelling",
-    ctxSpellWord: "Word",
-    ctxSpellReplace: "Replace with",
-    ctxSpellAddDict: "Add to dictionary",
-    ctxSpellRemoveDict: "Remove from dictionary",
-    ctxSpellNoIssue: "No spelling issues.",
-    ctxSpellDictUnavailable: "Spell checker unavailable (dictionary not loaded).",
-    ctxSpellLoading: "Checking…",
-    welcomeSubtitleHtml:
-      "Open a PDF via the <strong>File</strong> toolbar (visible in full screen, or with <strong>F10</strong>) or <strong>File &gt; Open PDF</strong> to get started.",
-    thumbAddsCount: "{{n}} add(s)",
-    changePageLine: "Page {{n}}",
-    annElem: "Item",
-    annTextWin: "Text box",
-    annImage: "Image",
-    shapeRect: "Rectangle",
-    shapeEllipse: "Ellipse",
-    shapeTriangle: "Triangle",
-    shapeLine: "Line",
-    shapeDiamond: "Diamond",
-    shapePentagon: "Pentagon",
-    shapeHexagon: "Hexagon",
-    shapeOctagon: "Octagon",
-    shapeStar: "Star",
-    shapeArrow: "Arrow",
-    shapeHeart: "Heart",
-    shapeCross: "Cross",
-    shapeParallelogram: "Parallelogram",
-    shapeTrapezoid: "Trapezoid",
-    emptyTextPreview: "(empty text)",
-    imageAdded: "Image added",
-    imageNamed: "Image: {{name}}",
-    shapeSummaryPrefix: "Shape: {{label}}",
-    splitWorkspaceTitle: "Split — page groups",
-    splitWorkspaceHint:
-      "Thumbnails per page. Drag between groups (Shift / Ctrl to select). Validate to create one PDF per group. Draft saved automatically.",
-    splitAddGroup: "+ Group",
-    splitValidate: "Validate",
-    splitGroupLabel: "Group",
-    splitDeleteGroup: "Remove",
-    splitGroupNameAria: "Group name",
-    splitThumbPage: "p. {{n}}",
-    splitGroupNumbered: "group {{n}}",
-    splitDefaultBaseName: "group",
-    shapePickerTitle: "Choose a shape",
-    shapeBtnRect: "Rectangle",
-    shapeBtnEllipse: "Ellipse",
-    shapeBtnTriangle: "Triangle",
-    shapeBtnLine: "Line",
-    shapeBtnDiamond: "Diamond",
-    shapeBtnPentagon: "Pentagon",
-    shapeBtnHexagon: "Hexagon",
-    shapeBtnOctagon: "Octagon",
-    shapeBtnStar: "Star",
-    shapeBtnArrow: "Arrow",
-    shapeBtnHeart: "Heart",
-    shapeBtnCross: "Cross",
-    shapeBtnParallelogram: "Parallelogram",
-    shapeBtnTrapezoid: "Trapezoid",
-    ctxMenuText: "Text",
-    ctxMenuShape: "Shape",
-    ctxMenuImage: "Image",
-    ctxBlankTitle: "Add",
-    blankAddText: "Add text",
-    blankAddShape: "Add shape",
-    blankAddImage: "Add image",
-    maniColorTitle: "Color",
-    maniColorValidate: "Apply",
-    maniColorEyedropper: "Eyedropper",
-    propMargins: "Padding",
-    closeAria: "Close",
-    ttToolbarFile: "File: open, save as, quit.",
-    ttToolbarOpenPdf: "Open a PDF file.",
-    ttToolbarSaveAs: "Save a new PDF (Ctrl+S).",
-    ttToolbarQuit: "Quit the application.",
-    ttToolbarOptions: "Options: language, etc.",
-    ttMerge: "Merge open PDFs into one file.",
-    ttSplit: "Split the active PDF into several page groups.",
-    ttCompress: "Create a compressed copy of the active PDF.",
-    ttProtect: "Protect the active PDF with a password.",
-    ttUnprotect: "Remove protection with the password.",
-    ttAboutMenu: "About Editify.",
-    ttAboutBtn: "About Editify",
-    ttCloseApp: "Close the application",
-    ttAddText: "Add an editable text area on the active page.",
-    ttAddShape: "Add a shape: click then pick from the list.",
-    ttAddImage: "Insert a local image into the document.",
-    ttDelete: "Delete the currently selected item.",
-    ttUndo: "Undo the last change.",
-    ttRedo: "Redo the undone change.",
-    ttFitWidth: "Fit the PDF to the window width.",
-    ttFitPage: "Fit the whole PDF in the window.",
-    ttValidateTextColor: "Apply the selected text color.",
-    ttValidateBg: "Apply the selected background color.",
-    ttApplyProps: "Apply properties to the selected text box.",
-    ttPrevPage: "Show the previous page.",
-    ttNextPage: "Show the next page.",
-    ttZoomOut: "Zoom out. Shortcut: Ctrl + wheel.",
-    ttZoomIn: "Zoom in. Shortcut: Ctrl + wheel.",
-    stLinkOpenFailed: "Could not open the link automatically. Copy/paste the URL.",
-    stSessionRecovered: "Session repaired.",
-    stPythonUnavailable: "Python service unavailable.",
-    stPythonMissingPypdf: "Warning: pypdf missing. Install: python -m pip install pypdf",
-    stPdfRenderError: "PDF rendering error.",
-    stZoomFitPage: "View fitted to page",
-    stZoomFitWidth: "View fitted to width",
-    stRendering: "Rendering pages {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF loaded — click + Text to annotate",
-    stPdfLoadedNamed: "PDF loaded: {{name}}",
-    stPdfLoadedHint2: "PDF loaded — click + Text to annotate",
-    stSelectionCancelled: "Selection cancelled.",
-    stSplitNoPdf: "Split: no active PDF.",
-    stSplitNotReady: "Split: document not ready.",
-    stSplitNoPages: "Split: no group with pages.",
-    stMergeNeedTwo: "Merge: open at least 2 PDFs.",
-    stCompressNoPdf: "Compression: no active PDF.",
-    stProtectNoPdf: "Protect: no active PDF.",
-    stProtectCancelled: "Protect cancelled (password required).",
-    stUnprotectNoPdf: "Unprotect: no active PDF.",
-    stUnprotectCancelled: "Unprotect cancelled.",
-    stSaveAsNoPdf: "Save as: no active PDF.",
-    stSaveAsCancelled: "Save as cancelled.",
-    stExporting: "Exporting PDF…",
-    stExported: "PDF exported.",
-    stExportFailed: "PDF export failed.",
-    stCopied: "Item copied",
-    stCut: "Item cut",
-    stPasted: "Item pasted",
-    stJobRefused: "Job refused.",
-    stMergeJobAdded: "Merge job queued.",
-    stSplitJobAdded: "Split job queued.",
-    stCompressJobAdded: "Compress job queued.",
-    stProtectJobAdded: "Protect job queued.",
-    stUnprotectJobAdded: "Unprotect job queued.",
-    ctxRotationDeg: "Rotation (°)",
-    ctxOpacityPctLabel: "Opacity (%)",
-    ctxShapeFillClear: "Clear fill",
-    ctxShapeStrokeClear: "Clear outline",
-    ctxShapeBackdropClear: "Clear backdrop",
-    ctxMenuColor: "Color",
-    ctxStrokeWidthPx: "Width (px)",
-    ctxShapeBackdropShort: "Backdrop",
-    ctxTextBgClear: "Transparent background",
-    promptProtectPassword: "Protection password",
-    promptUnprotectPassword: "Current password",
-    ctxFmtBold: "Bold",
-    ctxFmtItalic: "Italic",
-    ctxFmtUnderline: "Underline",
-    ariaWorkbench: "Workbench",
-    ariaNavPages: "Page navigation",
-    ariaZoom: "Zoom controls",
-    toastAria: "Notifications",
-    ariaAppToolbar: "Application toolbar",
-    shapeModalAria: "Shape picker",
-    maniColorRgbAria: "RGB values"
-  },
-  es: {
-    menuLang: "Idioma",
-    menuTools: "Herramientas PDF",
-    menuInfo: "Info",
-    openPdf: "📂 Abrir PDF",
-    saveAs: "💾 Guardar como…",
-    quit: "✕ Salir",
-    about: "❔ Acerca de",
-    thumbs: "Miniaturas",
-    changes: "Cambios",
-    pageWord: "Página",
-    noAdds: "Sin añadidos",
-    noAddsDoc: "Sin añadidos en este documento.",
-    jobsNone: "Sin trabajos.",
-    sensitiveNone: "Sin acciones sensibles.",
-    aboutTitle: "Acerca de",
-    aboutCreditsHtml:
-      'Creado por <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) y <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) en el marco de la práctica de Rafael.',
-    rgpdHtml: "<strong>RGPD</strong>: la aplicación es <strong>100% local</strong> — ningún dato sale del dispositivo del usuario (sin envío a un servidor).",
-    prevPage: "◀ Página -",
-    nextPage: "Página + ▶",
-    cancel: "Cancelar",
-    retry: "Reintentar",
-    appName: "Editify",
-    welcomeTitle: "Bienvenido a Editify",
-    language: "🌐 Idioma: ES",
-    open: "📂 Abrir PDF",
-    addText: "🔤 + Texto",
-    addShape: "🔷 + Forma",
-    addImage: "🖼️ + Imagen",
-    del: "🗑️ Borrar",
-    undo: "↶ Deshacer",
-    redo: "↷ Rehacer",
-    merge: "🧩 Unir",
-    split: "✂️ Dividir",
-    compress: "🗜️ Comprimir",
-    protect: "🔒 Proteger",
-    unprotect: "🔓 Desproteger",
-    fileMenu: "Archivo ▾",
-    optionsMenu: "Opciones ▾",
-    width: "Ancho",
-    height: "Alto",
-    rotation: "Rotación",
-    opacity: "Opacidad (%)",
-    txt: "Texto",
-    bg: "Fondo",
-    pad: "Margen",
-    font: "Fuente",
-    size: "Tamaño",
-    apply: "✅ Aplicar",
-    validate: "✅ Aplicar",
-    fitW: "↔️ Ajustar ancho",
-    fitP: "🗐 Ajustar página",
-    noPdf: "Sin PDF",
-    ready: "Listo",
-    choose: "Elige idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
-    f10Toolbar: "Pulse F10 para mostrar u ocultar la barra de menú.",
-    shapeFill: "Relleno",
-    shapeFillOp: "Opacidad relleno (%)",
-    shapeStroke: "Borde",
-    shapeStrokeOp: "Opacidad borde (%)",
-    shapeStrokeW: "Grosor borde (px)",
-    shapeBackdrop: "Fondo detrás de la forma",
-    shapeBackdropOp: "Opacidad fondo (%)",
-    ctxSpellTitle: "Ortografia",
-    ctxSpellWord: "Palabra",
-    ctxSpellReplace: "Sustituir por",
-    ctxSpellAddDict: "Anadir al diccionario",
-    ctxSpellRemoveDict: "Quitar del diccionario",
-    ctxSpellNoIssue: "Sin errores detectados.",
-    ctxSpellDictUnavailable: "Corrector no disponible (diccionario no cargado).",
-    ctxSpellLoading: "Comprobando…",
-    welcomeSubtitleHtml:
-      "Abre un PDF desde la barra <strong>Archivo</strong> (visible a pantalla completa, o con <strong>F10</strong>) o <strong>Archivo &gt; Abrir PDF</strong> para empezar.",
-    thumbAddsCount: "{{n}} anadido(s)",
-    changePageLine: "Pagina {{n}}",
-    annElem: "Elemento",
-    annTextWin: "Cuadro de texto",
-    annImage: "Imagen",
-    shapeRect: "Rectangulo",
-    shapeEllipse: "Elipse",
-    shapeTriangle: "Triangulo",
-    shapeLine: "Linea",
-    shapeDiamond: "Rombo",
-    shapePentagon: "Pentagono",
-    shapeHexagon: "Hexagono",
-    shapeOctagon: "Octogono",
-    shapeStar: "Estrella",
-    shapeArrow: "Flecha",
-    shapeHeart: "Corazon",
-    shapeCross: "Cruz",
-    shapeParallelogram: "Paralelogramo",
-    shapeTrapezoid: "Trapecio",
-    emptyTextPreview: "(texto vacio)",
-    imageAdded: "Imagen anadida",
-    imageNamed: "Imagen: {{name}}",
-    shapeSummaryPrefix: "Forma: {{label}}",
-    splitWorkspaceTitle: "Split — grupos de paginas",
-    splitWorkspaceHint:
-      "Miniaturas por pagina. Arrastre entre grupos (Mayus / Ctrl para seleccion). Validar para crear un PDF por grupo. Borrador guardado automaticamente.",
-    splitAddGroup: "+ Grupo",
-    splitValidate: "Validar",
-    splitGroupLabel: "Grupo",
-    splitDeleteGroup: "Eliminar",
-    splitGroupNameAria: "Nombre del grupo",
-    splitThumbPage: "p. {{n}}",
-    splitGroupNumbered: "grupo {{n}}",
-    splitDefaultBaseName: "grupo",
-    shapePickerTitle: "Elegir una forma",
-    shapeBtnRect: "Rectangulo",
-    shapeBtnEllipse: "Elipse",
-    shapeBtnTriangle: "Triangulo",
-    shapeBtnLine: "Linea",
-    shapeBtnDiamond: "Rombo",
-    shapeBtnPentagon: "Pentagono",
-    shapeBtnHexagon: "Hexagono",
-    shapeBtnOctagon: "Octogono",
-    shapeBtnStar: "Estrella",
-    shapeBtnArrow: "Flecha",
-    shapeBtnHeart: "Corazon",
-    shapeBtnCross: "Cruz",
-    shapeBtnParallelogram: "Paralelogramo",
-    shapeBtnTrapezoid: "Trapecio",
-    ctxMenuText: "Texto",
-    ctxMenuShape: "Forma",
-    ctxMenuImage: "Imagen",
-    ctxBlankTitle: "Anadir",
-    blankAddText: "Anadir texto",
-    blankAddShape: "Anadir forma",
-    blankAddImage: "Anadir imagen",
-    maniColorTitle: "Color",
-    maniColorValidate: "Aplicar",
-    maniColorEyedropper: "Cuentagotas",
-    propMargins: "Margenes",
-    closeAria: "Cerrar",
-    ttToolbarFile: "Archivo: abrir, guardar como, salir.",
-    ttToolbarOpenPdf: "Abre un archivo PDF.",
-    ttToolbarSaveAs: "Guarda un PDF nuevo (Ctrl+S).",
-    ttToolbarQuit: "Cierra la aplicacion.",
-    ttToolbarOptions: "Opciones: idioma, etc.",
-    ttMerge: "Fusiona los PDF abiertos en un solo archivo.",
-    ttSplit: "Divide el PDF activo en varios grupos de paginas.",
-    ttCompress: "Crea una version comprimida del PDF activo.",
-    ttProtect: "Protege el PDF activo con contrasena.",
-    ttUnprotect: "Quita la proteccion con la contrasena.",
-    ttAboutMenu: "Informacion sobre Editify.",
-    ttAboutBtn: "Acerca de Editify",
-    ttCloseApp: "Cerrar la aplicacion",
-    ttAddText: "Anade un area de texto editable en la pagina activa.",
-    ttAddShape: "Anade una forma: clic y elige en la lista.",
-    ttAddImage: "Inserta una imagen local en el documento.",
-    ttDelete: "Elimina el elemento seleccionado.",
-    ttUndo: "Deshace el ultimo cambio.",
-    ttRedo: "Rehace el cambio deshecho.",
-    ttFitWidth: "Ajusta el PDF al ancho de la ventana.",
-    ttFitPage: "Ajusta el PDF entero en la ventana.",
-    ttValidateTextColor: "Aplica el color de texto seleccionado.",
-    ttValidateBg: "Aplica el color de fondo seleccionado.",
-    ttApplyProps: "Aplica las propiedades al cuadro de texto seleccionado.",
-    ttPrevPage: "Muestra la pagina anterior.",
-    ttNextPage: "Muestra la pagina siguiente.",
-    ttZoomOut: "Aleja. Atajo: Ctrl + rueda.",
-    ttZoomIn: "Acerca. Atajo: Ctrl + rueda.",
-    stLinkOpenFailed: "No se pudo abrir el enlace automaticamente. Copie/pega la URL.",
-    stSessionRecovered: "Sesion reparada.",
-    stPythonUnavailable: "Servicio Python no disponible.",
-    stPythonMissingPypdf: "Atencion: falta pypdf. Instale: python -m pip install pypdf",
-    stPdfRenderError: "Error al renderizar el PDF.",
-    stZoomFitPage: "Vista ajustada a la pagina",
-    stZoomFitWidth: "Vista ajustada al ancho",
-    stRendering: "Renderizando paginas {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF cargado — pulse + Texto para anotar",
-    stPdfLoadedNamed: "PDF cargado: {{name}}",
-    stPdfLoadedHint2: "PDF cargado — pulse + Texto para anotar",
-    stSelectionCancelled: "Seleccion cancelada.",
-    stSplitNoPdf: "Split: ningun PDF activo.",
-    stSplitNotReady: "Split: documento no listo.",
-    stSplitNoPages: "Split: ningun grupo con paginas.",
-    stMergeNeedTwo: "Fusion: abra al menos 2 PDF.",
-    stCompressNoPdf: "Compresion: ningun PDF activo.",
-    stProtectNoPdf: "Proteger: ningun PDF activo.",
-    stProtectCancelled: "Proteccion cancelada (sin contrasena).",
-    stUnprotectNoPdf: "Desproteger: ningun PDF activo.",
-    stUnprotectCancelled: "Desproteccion cancelada.",
-    stSaveAsNoPdf: "Guardar como: ningun PDF activo.",
-    stSaveAsCancelled: "Guardar como cancelado.",
-    stExporting: "Exportando PDF…",
-    stExported: "PDF exportado.",
-    stExportFailed: "Exportacion PDF fallida.",
-    stCopied: "Elemento copiado",
-    stCut: "Elemento cortado",
-    stPasted: "Elemento pegado",
-    stJobRefused: "Trabajo rechazado.",
-    stMergeJobAdded: "Trabajo fusion encolado.",
-    stSplitJobAdded: "Trabajo split encolado.",
-    stCompressJobAdded: "Trabajo compresion encolado.",
-    stProtectJobAdded: "Trabajo proteger encolado.",
-    stUnprotectJobAdded: "Trabajo desproteger encolado.",
-    ctxRotationDeg: "Rotacion (°)",
-    ctxOpacityPctLabel: "Opacidad (%)",
-    ctxShapeFillClear: "Relleno transparente",
-    ctxShapeStrokeClear: "Borde transparente",
-    ctxShapeBackdropClear: "Fondo transparente",
-    ctxMenuColor: "Color",
-    ctxStrokeWidthPx: "Grosor (px)",
-    ctxShapeBackdropShort: "Fondo",
-    ctxTextBgClear: "Fondo transparente",
-    promptProtectPassword: "Contrasena de proteccion",
-    promptUnprotectPassword: "Contrasena actual",
-    ctxFmtBold: "Negrita",
-    ctxFmtItalic: "Cursiva",
-    ctxFmtUnderline: "Subrayado",
-    ariaWorkbench: "Area de trabajo",
-    ariaNavPages: "Navegacion de paginas",
-    ariaZoom: "Controles de zoom",
-    toastAria: "Notificaciones",
-    ariaAppToolbar: "Barra de herramientas",
-    shapeModalAria: "Elegir forma",
-    maniColorRgbAria: "Valores RGB"
-  },
-  pt: {
-    menuLang: "Idioma",
-    menuTools: "Ferramentas PDF",
-    menuInfo: "Info",
-    openPdf: "📂 Abrir PDF",
-    saveAs: "💾 Salvar como…",
-    quit: "✕ Sair",
-    about: "❔ Sobre",
-    thumbs: "Miniaturas",
-    changes: "Alterações",
-    pageWord: "Página",
-    noAdds: "Sem adições",
-    noAddsDoc: "Sem adições neste documento.",
-    jobsNone: "Sem jobs.",
-    sensitiveNone: "Sem ações sensíveis.",
-    aboutTitle: "Sobre",
-    aboutCreditsHtml:
-      'Criado por <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) e <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) no âmbito do estágio do Rafael.',
-    rgpdHtml: "<strong>RGPD</strong>: o aplicativo é <strong>100% local</strong> — nenhum dado sai do computador do usuário (sem envio para servidor).",
-    prevPage: "◀ Página -",
-    nextPage: "Página + ▶",
-    cancel: "Cancelar",
-    retry: "Tentar novamente",
-    appName: "Editify",
-    welcomeTitle: "Bem-vindo ao Editify",
-    language: "🌐 Idioma: PT",
-    open: "📂 Abrir PDF",
-    addText: "🔤 + Texto",
-    addShape: "🔷 + Forma",
-    addImage: "🖼️ + Imagem",
-    del: "🗑️ Excluir",
-    undo: "↶ Desfazer",
-    redo: "↷ Refazer",
-    merge: "🧩 Mesclar",
-    split: "✂️ Dividir",
-    compress: "🗜️ Comprimir",
-    protect: "🔒 Proteger",
-    unprotect: "🔓 Desproteger",
-    fileMenu: "Arquivo ▾",
-    optionsMenu: "Opções ▾",
-    width: "Largura",
-    height: "Altura",
-    rotation: "Rotação",
-    opacity: "Opacidade (%)",
-    txt: "Texto",
-    bg: "Fundo",
-    pad: "Margem",
-    font: "Fonte",
-    size: "Tamanho",
-    apply: "✅ Aplicar",
-    validate: "✅ Aplicar",
-    fitW: "↔️ Ajustar largura",
-    fitP: "🗐 Ajustar página",
-    noPdf: "Nenhum PDF",
-    ready: "Pronto",
-    choose: "Escolha o idioma:\n1. Francais\n2. English\n3. Espanol\n4. Portugues",
-    f10Toolbar: "Pressione F10 para mostrar ou ocultar a barra de menu.",
-    shapeFill: "Preenchimento",
-    shapeFillOp: "Opacidade preenchimento (%)",
-    shapeStroke: "Contorno",
-    shapeStrokeOp: "Opacidade contorno (%)",
-    shapeStrokeW: "Espessura contorno (px)",
-    shapeBackdrop: "Fundo atrás da forma",
-    shapeBackdropOp: "Opacidade fundo (%)",
-    ctxSpellTitle: "Ortografia",
-    ctxSpellWord: "Palavra",
-    ctxSpellReplace: "Substituir por",
-    ctxSpellAddDict: "Adicionar ao dicionario",
-    ctxSpellRemoveDict: "Remover do dicionario",
-    ctxSpellNoIssue: "Nenhum erro detetado.",
-    ctxSpellDictUnavailable: "Corretor indisponivel (dicionario nao carregado).",
-    ctxSpellLoading: "A verificar…",
-    welcomeSubtitleHtml:
-      "Abra um PDF pela barra <strong>Ficheiro</strong> (visivel em ecra inteiro, ou com <strong>F10</strong>) ou <strong>Ficheiro &gt; Abrir PDF</strong> para comecar.",
-    thumbAddsCount: "{{n}} adicao(oes)",
-    changePageLine: "Pagina {{n}}",
-    annElem: "Elemento",
-    annTextWin: "Caixa de texto",
-    annImage: "Imagem",
-    shapeRect: "Retangulo",
-    shapeEllipse: "Elipse",
-    shapeTriangle: "Triangulo",
-    shapeLine: "Linha",
-    shapeDiamond: "Losango",
-    shapePentagon: "Pentagono",
-    shapeHexagon: "Hexagono",
-    shapeOctagon: "Octogono",
-    shapeStar: "Estrela",
-    shapeArrow: "Seta",
-    shapeHeart: "Coracao",
-    shapeCross: "Cruz",
-    shapeParallelogram: "Paralelogramo",
-    shapeTrapezoid: "Trapezio",
-    emptyTextPreview: "(texto vazio)",
-    imageAdded: "Imagem adicionada",
-    imageNamed: "Imagem: {{name}}",
-    shapeSummaryPrefix: "Forma: {{label}}",
-    splitWorkspaceTitle: "Split — grupos de paginas",
-    splitWorkspaceHint:
-      "Miniaturas por pagina. Arraste entre grupos (Shift / Ctrl para selecionar). Validar para criar um PDF por grupo. Rascunho guardado automaticamente.",
-    splitAddGroup: "+ Grupo",
-    splitValidate: "Validar",
-    splitGroupLabel: "Grupo",
-    splitDeleteGroup: "Remover",
-    splitGroupNameAria: "Nome do grupo",
-    splitThumbPage: "p. {{n}}",
-    splitGroupNumbered: "grupo {{n}}",
-    splitDefaultBaseName: "grupo",
-    shapePickerTitle: "Escolher uma forma",
-    shapeBtnRect: "Retangulo",
-    shapeBtnEllipse: "Elipse",
-    shapeBtnTriangle: "Triangulo",
-    shapeBtnLine: "Linha",
-    shapeBtnDiamond: "Losango",
-    shapeBtnPentagon: "Pentagono",
-    shapeBtnHexagon: "Hexagono",
-    shapeBtnOctagon: "Octogono",
-    shapeBtnStar: "Estrela",
-    shapeBtnArrow: "Seta",
-    shapeBtnHeart: "Coracao",
-    shapeBtnCross: "Cruz",
-    shapeBtnParallelogram: "Paralelogramo",
-    shapeBtnTrapezoid: "Trapezio",
-    ctxMenuText: "Texto",
-    ctxMenuShape: "Forma",
-    ctxMenuImage: "Imagem",
-    ctxBlankTitle: "Adicionar",
-    blankAddText: "Adicionar texto",
-    blankAddShape: "Adicionar forma",
-    blankAddImage: "Adicionar imagem",
-    maniColorTitle: "Cor",
-    maniColorValidate: "Aplicar",
-    maniColorEyedropper: "Conta-gotas",
-    propMargins: "Margens",
-    closeAria: "Fechar",
-    ttToolbarFile: "Ficheiro: abrir, guardar como, sair.",
-    ttToolbarOpenPdf: "Abre um ficheiro PDF.",
-    ttToolbarSaveAs: "Guarda um PDF novo (Ctrl+S).",
-    ttToolbarQuit: "Fecha a aplicacao.",
-    ttToolbarOptions: "Opcoes: idioma, etc.",
-    ttMerge: "Junta os PDF abertos num so ficheiro.",
-    ttSplit: "Divide o PDF ativo em varios grupos de paginas.",
-    ttCompress: "Cria uma versao comprimida do PDF ativo.",
-    ttProtect: "Protege o PDF ativo com palavra-passe.",
-    ttUnprotect: "Remove a protecao com a palavra-passe.",
-    ttAboutMenu: "Informacoes sobre o Editify.",
-    ttAboutBtn: "Sobre o Editify",
-    ttCloseApp: "Fechar a aplicacao",
-    ttAddText: "Adiciona uma area de texto editavel na pagina ativa.",
-    ttAddShape: "Adiciona uma forma: clique e escolha na lista.",
-    ttAddImage: "Insere uma imagem local no documento.",
-    ttDelete: "Remove o elemento selecionado.",
-    ttUndo: "Anula a ultima alteracao.",
-    ttRedo: "Refaz a alteracao anulada.",
-    ttFitWidth: "Ajusta o PDF a largura da janela.",
-    ttFitPage: "Ajusta o PDF inteiro na janela.",
-    ttValidateTextColor: "Aplica a cor de texto selecionada.",
-    ttValidateBg: "Aplica a cor de fundo selecionada.",
-    ttApplyProps: "Aplica as propriedades a caixa de texto selecionada.",
-    ttPrevPage: "Mostra a pagina anterior.",
-    ttNextPage: "Mostra a pagina seguinte.",
-    ttZoomOut: "Afasta. Atalho: Ctrl + roda.",
-    ttZoomIn: "Aproxima. Atalho: Ctrl + roda.",
-    stLinkOpenFailed: "Nao foi possivel abrir a ligacao automaticamente. Copie/cole o URL.",
-    stSessionRecovered: "Sessao reparada.",
-    stPythonUnavailable: "Servico Python indisponivel.",
-    stPythonMissingPypdf: "Aviso: falta pypdf. Instale: python -m pip install pypdf",
-    stPdfRenderError: "Erro ao renderizar o PDF.",
-    stZoomFitPage: "Vista ajustada a pagina",
-    stZoomFitWidth: "Vista ajustada a largura",
-    stRendering: "A renderizar paginas {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF carregado — clique + Texto para anotar",
-    stPdfLoadedNamed: "PDF carregado: {{name}}",
-    stPdfLoadedHint2: "PDF carregado — clique + Texto para anotar",
-    stSelectionCancelled: "Selecao cancelada.",
-    stSplitNoPdf: "Split: nenhum PDF ativo.",
-    stSplitNotReady: "Split: documento nao pronto.",
-    stSplitNoPages: "Split: nenhum grupo com paginas.",
-    stMergeNeedTwo: "Fusao: abra pelo menos 2 PDF.",
-    stCompressNoPdf: "Compressao: nenhum PDF ativo.",
-    stProtectNoPdf: "Proteger: nenhum PDF ativo.",
-    stProtectCancelled: "Proteccao cancelada (palavra-passe necessaria).",
-    stUnprotectNoPdf: "Desproteger: nenhum PDF ativo.",
-    stUnprotectCancelled: "Desproteccao cancelada.",
-    stSaveAsNoPdf: "Guardar como: nenhum PDF ativo.",
-    stSaveAsCancelled: "Guardar como cancelado.",
-    stExporting: "A exportar PDF…",
-    stExported: "PDF exportado.",
-    stExportFailed: "Exportacao PDF falhou.",
-    stCopied: "Elemento copiado",
-    stCut: "Elemento cortado",
-    stPasted: "Elemento colado",
-    stJobRefused: "Trabalho recusado.",
-    stMergeJobAdded: "Trabalho fusao em fila.",
-    stSplitJobAdded: "Trabalho split em fila.",
-    stCompressJobAdded: "Trabalho compressao em fila.",
-    stProtectJobAdded: "Trabalho proteger em fila.",
-    stUnprotectJobAdded: "Trabalho desproteger em fila.",
-    ctxRotationDeg: "Rotacao (°)",
-    ctxOpacityPctLabel: "Opacidade (%)",
-    ctxShapeFillClear: "Preenchimento transparente",
-    ctxShapeStrokeClear: "Contorno transparente",
-    ctxShapeBackdropClear: "Fundo transparente",
-    ctxMenuColor: "Cor",
-    ctxStrokeWidthPx: "Espessura (px)",
-    ctxShapeBackdropShort: "Fundo",
-    ctxTextBgClear: "Fundo transparente",
-    promptProtectPassword: "Palavra-passe de protecao",
-    promptUnprotectPassword: "Palavra-passe actual",
-    ctxFmtBold: "Negrito",
-    ctxFmtItalic: "Italico",
-    ctxFmtUnderline: "Sublinhado",
-    ariaWorkbench: "Area de trabalho",
-    ariaNavPages: "Navegacao de paginas",
-    ariaZoom: "Controles de zoom",
-    toastAria: "Notificacoes",
-    ariaAppToolbar: "Barra de ferramentas",
-    shapeModalAria: "Escolher forma",
-    maniColorRgbAria: "Valores RGB"
-  }
-};
+
+/**
+ * Dictionnaires i18n : données dans renderer-i18n-data.js (chargé avant ce script).
+ * Ancien emplacement : bloc const I18N = { ... } ici — supprimé après extraction (git pour historique).
+ */
+const I18N = window.__EDITIFY_I18N;
+if (!I18N || typeof I18N !== "object") {
+  throw new Error("renderer-i18n-data.js doit etre charge avant renderer.js (voir index.html).");
+}
 
 const SHAPE_TYPES = new Set([
   "rect",
@@ -2916,139 +906,6 @@ function renderShapeVectorDOM(host, a) {
   }
 
   host.appendChild(svg);
-}
-
-function stripTagsForPlain(html) {
-  return String(html || "")
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .trim();
-}
-
-function plainTextForAnnotationItem(item) {
-  if (!item || item.type !== "text") return "";
-  if (item.textHtml && String(item.textHtml).trim()) {
-    const div = document.createElement("div");
-    div.innerHTML = sanitizeTextHtml(item.textHtml);
-    // Aligné sur Range.toString() / getPlainSelectionOffsetsInEditor (pas innerText sur nœud détaché).
-    const rng = document.createRange();
-    rng.selectNodeContents(div);
-    return String(rng.toString() || "").replace(/\r\n/g, "\n");
-  }
-  return String(item.text || "");
-}
-
-/**
- * Borne DOM pour un index dans la chaîne alignée sur Range.toString() (texte + BR → un caractère \n).
- * Même repère que plainTextForAnnotationItem / getPlainSelectionOffsetsInEditor.
- */
-function getTextBoundaryInRoot(root, charIndex) {
-  if (charIndex < 0) return null;
-  const full = (() => {
-    const r = document.createRange();
-    r.selectNodeContents(root);
-    return String(r.toString() || "").replace(/\r\n/g, "\n");
-  })();
-  if (charIndex > full.length) return null;
-
-  let acc = 0;
-
-  function walk(node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = node.nodeValue.length;
-      if (charIndex < acc + len) {
-        return { node, offset: charIndex - acc };
-      }
-      if (charIndex === acc + len) {
-        return { node, offset: len };
-      }
-      acc += len;
-      return null;
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.tagName === "BR") {
-        if (charIndex === acc) {
-          const parent = node.parentNode;
-          const idx = Array.prototype.indexOf.call(parent.childNodes, node);
-          return { node: parent, offset: idx };
-        }
-        if (charIndex === acc + 1) {
-          const parent = node.parentNode;
-          const idx = Array.prototype.indexOf.call(parent.childNodes, node);
-          return { node: parent, offset: idx + 1 };
-        }
-        acc += 1;
-        return null;
-      }
-      for (let i = 0; i < node.childNodes.length; i++) {
-        const b = walk(node.childNodes[i]);
-        if (b) return b;
-      }
-    }
-    return null;
-  }
-
-  return walk(root);
-}
-
-function wrapSpellMisspellingsInDisplayRoot(root, ranges) {
-  if (!root || !ranges?.length) return;
-  const sorted = [...ranges].sort((a, b) => a.start - b.start);
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const { start, end } = sorted[i];
-    if (start >= end || start < 0) continue;
-    const a = getTextBoundaryInRoot(root, start);
-    const b = getTextBoundaryInRoot(root, end);
-    if (!a || !b) continue;
-    const range = document.createRange();
-    try {
-      range.setStart(a.node, a.offset);
-      range.setEnd(b.node, b.offset);
-    } catch {
-      continue;
-    }
-    const span = document.createElement("span");
-    span.className = "mani-spell-miss";
-    span.setAttribute("role", "presentation");
-    try {
-      range.surroundContents(span);
-    } catch {
-      try {
-        const frag = range.extractContents();
-        span.appendChild(frag);
-        range.insertNode(span);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-}
-
-function applySpellHighlightsToTextDisplayNode(node, item) {
-  if (!node || item.type !== "text") return;
-  const plain = plainTextForAnnotationItem(item);
-  const ranges = item._spellErrors;
-  if (!plain || !ranges?.length) return;
-  const rng = document.createRange();
-  rng.selectNodeContents(node);
-  const live = String(rng.toString() || "").replace(/\r\n/g, "\n");
-  const p = plain.replace(/\r\n/g, "\n");
-  if (live !== p) return;
-  wrapSpellMisspellingsInDisplayRoot(node, ranges);
-}
-
-/** Réduit le XSS sur le HTML produit par contentEditable (pas un sanitizer complet type DOMPurify). */
-function sanitizeTextHtml(html) {
-  const div = document.createElement("div");
-  div.innerHTML = String(html || "");
-  div.querySelectorAll("script,style,iframe,object,embed,link").forEach((el) => el.remove());
-  div.querySelectorAll("*").forEach((el) => {
-    for (const attr of Array.from(el.attributes || [])) {
-      const n = attr.name || "";
-      if (n.toLowerCase().startsWith("on")) el.removeAttribute(n);
-    }
-  });
-  return div.innerHTML;
 }
 
 function syncTextFromEditor(a, editorEl) {
@@ -3383,7 +1240,8 @@ function applyLanguage() {
     /* ignore */
   }
   try {
-    if (toastRoot) toastRoot.setAttribute("aria-label", t("toastAria"));
+    const tr = ensureToastRoot();
+    tr?.setAttribute?.("aria-label", t("toastAria"));
   } catch {
     /* ignore */
   }
@@ -3403,9 +1261,7 @@ function setLanguage(lang) {
   try {
     renderThumbnails();
     renderChanges();
-    if (splitWorkspaceState && splitWorkspaceOverlay && !splitWorkspaceOverlay.classList.contains("hidden")) {
-      renderSplitWorkspace();
-    }
+    sw.renderSplitWorkspaceIfOpen();
   } catch {
     /* ignore */
   }
@@ -4155,518 +2011,6 @@ async function enqueuePdfJob(type, payload, successStatus) {
   return true;
 }
 
-// --- Split par groupes (UI overlay) : état runtime + persistance brouillon locale ---
-function splitWorkspaceDraftKey(pdfPath) {
-  return `maniSplitDraft:${pdfPath}`;
-}
-
-function sanitizeSplitBaseName(name) {
-  const s = String(name || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim();
-  return s || t("splitDefaultBaseName");
-}
-
-function createSplitWorkspaceState(tab) {
-  const n = Math.max(1, Number(tab.pageCount) || 1);
-  const allPages = Array.from({ length: n }, (_, i) => i + 1);
-  return {
-    tabPath: tab.path,
-    pageCount: n,
-    groups: [
-      { id: "g1", name: tr("splitGroupNumbered", { n: "1" }), pages: [...allPages] },
-      { id: "g2", name: tr("splitGroupNumbered", { n: "2" }), pages: [] }
-    ],
-    nextGroupId: 3,
-    selected: new Set(),
-    anchorPage: null
-  };
-}
-
-function normalizeSplitState(st, tab) {
-  const n = Math.max(1, Number(tab.pageCount) || 1);
-  const seen = new Set();
-  for (const g of st.groups) {
-    g.pages = g.pages.map((p) => Number(p)).filter((p) => Number.isFinite(p) && p >= 1 && p <= n);
-    g.pages = g.pages.filter((p) => {
-      if (seen.has(p)) return false;
-      seen.add(p);
-      return true;
-    });
-  }
-  const missing = [];
-  for (let p = 1; p <= n; p++) {
-    if (!seen.has(p)) missing.push(p);
-  }
-  if (missing.length && st.groups.length) {
-    st.groups[0].pages.push(...missing);
-    st.groups[0].pages.sort((a, b) => a - b);
-  }
-}
-
-function loadSplitWorkspaceDraft(tab) {
-  try {
-    const raw = localStorage.getItem(splitWorkspaceDraftKey(tab.path));
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || data.tabPath !== tab.path) return null;
-    const n = Math.max(1, Number(tab.pageCount) || 1);
-    if (Number(data.pageCount) !== n) return null;
-    const groups = Array.isArray(data.groups)
-      ? data.groups.map((g, i) => ({
-          id: typeof g.id === "string" ? g.id : `g${i + 1}`,
-          name: typeof g.name === "string" ? g.name : tr("splitGroupNumbered", { n: String(i + 1) }),
-          pages: Array.isArray(g.pages) ? g.pages.map((p) => Number(p)) : []
-        }))
-      : [];
-    if (groups.length < 2) return null;
-    const st = {
-      tabPath: tab.path,
-      pageCount: n,
-      groups,
-      nextGroupId: Math.max(3, Number(data.nextGroupId) || 3),
-      selected: new Set(),
-      anchorPage: null
-    };
-    normalizeSplitState(st, tab);
-    return st;
-  } catch {
-    return null;
-  }
-}
-
-function scheduleSplitWorkspaceAutosave() {
-  if (!splitWorkspaceState) return;
-  try {
-    clearTimeout(splitAutosaveTimer);
-  } catch {
-    /* ignore */
-  }
-  splitAutosaveTimer = setTimeout(() => {
-    try {
-      const st = splitWorkspaceState;
-      if (!st) return;
-      const payload = {
-        tabPath: st.tabPath,
-        pageCount: st.pageCount,
-        groups: st.groups.map((g) => ({
-          id: g.id,
-          name: g.name,
-          pages: [...g.pages]
-        })),
-        nextGroupId: st.nextGroupId
-      };
-      localStorage.setItem(splitWorkspaceDraftKey(st.tabPath), JSON.stringify(payload));
-    } catch {
-      /* ignore */
-    }
-  }, 320);
-}
-
-function buildSplitThumbCanvas(pageNum) {
-  const pageNode = pagesContainer?.querySelector?.(`.pdf-page[data-page="${pageNum}"]`);
-  const srcCanvas = pageNode?.querySelector?.("canvas.pdf-canvas");
-  if (!srcCanvas) return null;
-  const targetW = 88;
-  const ratio = srcCanvas.width > 0 ? targetW / srcCanvas.width : 1;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(10, Math.floor(srcCanvas.width * ratio));
-  canvas.height = Math.max(10, Math.floor(srcCanvas.height * ratio));
-  const ctx = canvas.getContext("2d");
-  try {
-    ctx.drawImage(srcCanvas, 0, 0, canvas.width, canvas.height);
-  } catch {
-    /* ignore */
-  }
-  return canvas;
-}
-
-function getOrderedPagesFromList(pageNums) {
-  const st = splitWorkspaceState;
-  if (!st) return [];
-  const set = new Set(pageNums);
-  const out = [];
-  for (const g of st.groups) {
-    for (const p of g.pages) {
-      if (set.has(p)) out.push(p);
-    }
-  }
-  return out;
-}
-
-function getOrderedSelectedPages() {
-  return getOrderedPagesFromList([...splitWorkspaceState.selected]);
-}
-
-function findGroupContainingPage(page) {
-  const st = splitWorkspaceState;
-  if (!st) return null;
-  return st.groups.find((g) => g.pages.includes(page)) || null;
-}
-
-function applySplitShiftRange(groupId, pageA, pageB) {
-  const st = splitWorkspaceState;
-  const g = st.groups.find((x) => x.id === groupId);
-  if (!g) return;
-  const ia = g.pages.indexOf(pageA);
-  const ib = g.pages.indexOf(pageB);
-  if (ia < 0 || ib < 0) return;
-  const lo = Math.min(ia, ib);
-  const hi = Math.max(ia, ib);
-  st.selected.clear();
-  for (let i = lo; i <= hi; i++) st.selected.add(g.pages[i]);
-}
-
-function handleSplitThumbClick(page, groupId, ev) {
-  const st = splitWorkspaceState;
-  if (!st) return;
-  if (ev.shiftKey) {
-    if (st.anchorPage != null) {
-      const ag = findGroupContainingPage(st.anchorPage);
-      if (ag && ag.id === groupId) {
-        applySplitShiftRange(groupId, st.anchorPage, page);
-        renderSplitWorkspace();
-        scheduleSplitWorkspaceAutosave();
-        return;
-      }
-    }
-    st.selected.clear();
-    st.selected.add(page);
-    st.anchorPage = page;
-  } else if (ev.ctrlKey || ev.metaKey) {
-    if (st.selected.has(page)) st.selected.delete(page);
-    else st.selected.add(page);
-    st.anchorPage = page;
-  } else {
-    st.selected.clear();
-    st.selected.add(page);
-    st.anchorPage = page;
-  }
-  renderSplitWorkspace();
-  scheduleSplitWorkspaceAutosave();
-}
-
-function updateSplitDropHover(clientX, clientY) {
-  const el = document.elementFromPoint(clientX, clientY);
-  const body = el?.closest?.(".split-group-body");
-  if (splitDropHoverEl && splitDropHoverEl !== body) {
-    splitDropHoverEl.classList.remove("split-drop-hover");
-  }
-  if (body) {
-    body.classList.add("split-drop-hover");
-    splitDropHoverEl = body;
-  }
-}
-
-function clearSplitDropHover() {
-  if (splitDropHoverEl) {
-    splitDropHoverEl.classList.remove("split-drop-hover");
-    splitDropHoverEl = null;
-  }
-}
-
-function removeSplitGhost() {
-  if (splitDragGhost) {
-    try {
-      splitDragGhost.remove();
-    } catch {
-      /* ignore */
-    }
-    splitDragGhost = null;
-  }
-  splitDragPages = null;
-}
-
-function startSplitDrag(page, _groupId, clientX, clientY) {
-  const st = splitWorkspaceState;
-  if (!st) return;
-  const pages = st.selected.has(page) ? getOrderedSelectedPages() : [page];
-  splitDragPages = pages;
-  const ordered = getOrderedPagesFromList(pages);
-  const ghost = document.createElement("div");
-  ghost.className = "split-drag-ghost";
-  ghost.setAttribute("aria-hidden", "true");
-  const c = buildSplitThumbCanvas(ordered[0]);
-  if (c) {
-    ghost.appendChild(c);
-    splitDragOffsetX = Math.floor(c.width / 2);
-    splitDragOffsetY = Math.floor(c.height / 2);
-  } else {
-    splitDragOffsetX = 44;
-    splitDragOffsetY = 56;
-  }
-  if (ordered.length > 1) {
-    const badge = document.createElement("div");
-    badge.textContent = String(ordered.length);
-    badge.style.cssText =
-      "position:absolute;right:4px;top:4px;background:#007acc;color:#fff;border-radius:10px;padding:2px 6px;font-size:11px;font-weight:700;z-index:2;";
-    ghost.appendChild(badge);
-  }
-  document.body.appendChild(ghost);
-  splitDragGhost = ghost;
-  splitDragGhost.style.left = `${clientX - splitDragOffsetX}px`;
-  splitDragGhost.style.top = `${clientY - splitDragOffsetY}px`;
-}
-
-function applySplitDrop(ordered, targetGroupId, beforePage) {
-  const st = splitWorkspaceState;
-  if (!st) return;
-  const tg = st.groups.find((g) => g.id === targetGroupId);
-  if (!tg) return;
-  const orig = [...tg.pages];
-  let insertPos = orig.length;
-  if (beforePage != null && Number.isFinite(Number(beforePage))) {
-    const bp = Number(beforePage);
-    const ix = orig.indexOf(bp);
-    insertPos = ix >= 0 ? ix : orig.length;
-  }
-  for (const g of st.groups) {
-    g.pages = g.pages.filter((p) => !ordered.includes(p));
-  }
-  const tg2 = st.groups.find((g) => g.id === targetGroupId);
-  if (!tg2) return;
-  let pos = insertPos;
-  for (let i = 0; i < insertPos && i < orig.length; i++) {
-    if (ordered.includes(orig[i])) pos -= 1;
-  }
-  const maxPos = tg2.pages.length;
-  pos = Math.max(0, Math.min(maxPos, pos));
-  tg2.pages.splice(pos, 0, ...ordered);
-}
-
-function finishSplitDrag(clientX, clientY) {
-  const st = splitWorkspaceState;
-  const ordered = splitDragPages ? getOrderedPagesFromList(splitDragPages) : [];
-  if (!st || !ordered.length) return;
-  const el = document.elementFromPoint(clientX, clientY);
-  const thumb = el?.closest?.(".split-thumb");
-  const body = el?.closest?.(".split-group-body");
-  let targetGroupId = null;
-  let beforePage = null;
-  if (thumb) {
-    targetGroupId = thumb.dataset.groupId || null;
-    beforePage = Number(thumb.dataset.page);
-  } else if (body) {
-    targetGroupId = body.dataset.groupId || null;
-  }
-  if (!targetGroupId) return;
-  applySplitDrop(ordered, targetGroupId, Number.isFinite(beforePage) ? beforePage : null);
-  st.selected.clear();
-}
-
-function onSplitThumbPointerDown(ev, page, groupId) {
-  if (ev.button !== 0) return;
-  const noDrag = Boolean(ev.shiftKey || ev.ctrlKey || ev.metaKey);
-  splitPointer = {
-    page,
-    groupId,
-    startX: ev.clientX,
-    startY: ev.clientY,
-    dragging: false,
-    didDrag: false,
-    noDrag,
-    shift: ev.shiftKey,
-    ctrl: ev.ctrlKey || ev.metaKey
-  };
-
-  const move = (e) => {
-    if (!splitPointer) return;
-    const dx = e.clientX - splitPointer.startX;
-    const dy = e.clientY - splitPointer.startY;
-    if (!splitPointer.noDrag && !splitPointer.dragging && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
-      splitPointer.dragging = true;
-      splitPointer.didDrag = true;
-      startSplitDrag(splitPointer.page, splitPointer.groupId, e.clientX, e.clientY);
-    }
-    if (splitPointer.dragging && splitDragGhost) {
-      splitDragGhost.style.left = `${e.clientX - splitDragOffsetX}px`;
-      splitDragGhost.style.top = `${e.clientY - splitDragOffsetY}px`;
-    }
-    updateSplitDropHover(e.clientX, e.clientY);
-  };
-
-  const up = (e) => {
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
-    if (splitPointer?.dragging) {
-      finishSplitDrag(e.clientX, e.clientY);
-      renderSplitWorkspace();
-      scheduleSplitWorkspaceAutosave();
-    } else if (splitPointer && !splitPointer.didDrag) {
-      handleSplitThumbClick(page, groupId, {
-        shiftKey: splitPointer.shift,
-        ctrlKey: splitPointer.ctrl,
-        metaKey: splitPointer.ctrl
-      });
-    }
-    splitPointer = null;
-    clearSplitDropHover();
-    removeSplitGhost();
-  };
-
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
-}
-
-function createSplitThumbEl(page, groupId) {
-  const wrap = document.createElement("div");
-  wrap.className = "split-thumb";
-  if (splitWorkspaceState?.selected.has(page)) wrap.classList.add("split-thumb-selected");
-  wrap.dataset.page = String(page);
-  wrap.dataset.groupId = groupId;
-  const cw = document.createElement("div");
-  cw.className = "split-thumb-canvas-wrap";
-  const canvas = buildSplitThumbCanvas(page);
-  if (canvas) cw.appendChild(canvas);
-  else {
-    const ph = document.createElement("div");
-    ph.textContent = "…";
-    ph.style.padding = "24px 8px";
-    ph.style.textAlign = "center";
-    cw.appendChild(ph);
-  }
-  const meta = document.createElement("div");
-  meta.className = "split-thumb-meta";
-  meta.textContent = tr("splitThumbPage", { n: String(page) });
-  wrap.appendChild(cw);
-  wrap.appendChild(meta);
-  wrap.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    onSplitThumbPointerDown(e, page, groupId);
-  });
-  return wrap;
-}
-
-function renderSplitWorkspace() {
-  if (!splitWorkspaceGroups || !splitWorkspaceState) return;
-  const st = splitWorkspaceState;
-  splitWorkspaceGroups.innerHTML = "";
-  for (let gi = 0; gi < st.groups.length; gi += 1) {
-    const g = st.groups[gi];
-    const section = document.createElement("section");
-    section.className = "split-group";
-    section.dataset.groupId = g.id;
-    const header = document.createElement("div");
-    header.className = "split-group-header";
-    const label = document.createElement("label");
-    const span = document.createElement("span");
-    span.textContent = t("splitGroupLabel");
-    const inp = document.createElement("input");
-    inp.type = "text";
-    inp.className = "split-group-name";
-    inp.value = g.name;
-    inp.setAttribute("aria-label", t("splitGroupNameAria"));
-    inp.addEventListener("input", () => {
-      g.name = inp.value;
-      scheduleSplitWorkspaceAutosave();
-    });
-    label.appendChild(span);
-    label.appendChild(inp);
-    header.appendChild(label);
-    // Suppression possible uniquement pour les groupes ajoutés (pas les 2 premiers).
-    if (gi >= 2) {
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "split-group-delete";
-      del.textContent = t("splitDeleteGroup");
-      del.addEventListener("click", () => {
-        try {
-          // Remettre les pages dans le groupe 1 pour éviter toute perte.
-          const g1 = st.groups[0];
-          g1.pages.push(...g.pages);
-          g1.pages = Array.from(new Set(g1.pages)).sort((a, b) => a - b);
-          // Retirer le groupe.
-          st.groups = st.groups.filter((x) => x.id !== g.id);
-          st.selected.clear();
-        } catch {}
-        renderSplitWorkspace();
-        scheduleSplitWorkspaceAutosave();
-      });
-      header.appendChild(del);
-    }
-    section.appendChild(header);
-    const body = document.createElement("div");
-    body.className = "split-group-body";
-    body.dataset.groupId = g.id;
-    for (const page of g.pages) {
-      body.appendChild(createSplitThumbEl(page, g.id));
-    }
-    section.appendChild(body);
-    splitWorkspaceGroups.appendChild(section);
-  }
-}
-
-function addSplitGroup() {
-  if (!splitWorkspaceState) return;
-  const num = splitWorkspaceState.nextGroupId;
-  splitWorkspaceState.nextGroupId += 1;
-  splitWorkspaceState.groups.push({ id: `g${num}`, name: tr("splitGroupNumbered", { n: String(num) }), pages: [] });
-  renderSplitWorkspace();
-  scheduleSplitWorkspaceAutosave();
-}
-
-function openSplitWorkspace() {
-  const tab = getActiveTab();
-  if (!tab) {
-    setStatus(t("stSplitNoPdf"));
-    return;
-  }
-  if (!Number(tab.pageCount) || tab.pageCount < 1) {
-    setStatus(t("stSplitNotReady"));
-    return;
-  }
-  splitWorkspaceState = loadSplitWorkspaceDraft(tab) || createSplitWorkspaceState(tab);
-  normalizeSplitState(splitWorkspaceState, tab);
-  splitWorkspaceOverlay?.classList.remove("hidden");
-  splitWorkspaceOverlay?.setAttribute("aria-hidden", "false");
-  renderSplitWorkspace();
-  scheduleSplitWorkspaceAutosave();
-  try {
-    splitWorkspaceValidateBtn?.focus?.();
-  } catch {
-    /* ignore */
-  }
-}
-
-function closeSplitWorkspace() {
-  scheduleSplitWorkspaceAutosave();
-  splitWorkspaceOverlay?.classList.add("hidden");
-  splitWorkspaceOverlay?.setAttribute("aria-hidden", "true");
-  splitWorkspaceState = null;
-  removeSplitGhost();
-  clearSplitDropHover();
-}
-
-async function validateSplitWorkspace() {
-  const st = splitWorkspaceState;
-  const tab = getActiveTab();
-  if (!st || !tab || tab.path !== st.tabPath) return;
-  const exports = [];
-  let idx = 0;
-  for (const g of st.groups) {
-    if (!g.pages.length) continue;
-    idx += 1;
-    const safe = sanitizeSplitBaseName(g.name);
-    const outputPath = buildDefaultOutputPath(tab.path, `split-${idx}-${safe}`);
-    exports.push({ output_path: outputPath, page_indices: [...g.pages] });
-  }
-  if (!exports.length) {
-    setStatus(t("stSplitNoPages"));
-    return;
-  }
-  const enqueued = await enqueuePdfJob(
-    "split_groups",
-    { input_path: tab.path, groups: exports },
-    t("stSplitJobAdded")
-  );
-  if (!enqueued) return;
-  try {
-    localStorage.removeItem(splitWorkspaceDraftKey(tab.path));
-  } catch {
-    /* ignore */
-  }
-  closeSplitWorkspace();
-}
-
 async function createMergeJob() {
 
   const pdfTabs = state.tabs.map((t) => t.path);
@@ -4679,7 +2023,7 @@ async function createMergeJob() {
 }
 
 function createSplitJob() {
-  openSplitWorkspace();
+  sw.openSplitWorkspace();
 }
 
 async function createCompressJob() {
@@ -4853,7 +2197,7 @@ function renderAnnotations() {
       node.oncontextmenu = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        openTextAnnotationCtxMenu(event, a.id);
+        tcm.openTextAnnotationCtxMenu(event, a.id);
       };
 
       node.ondblclick = (event) => {
@@ -4895,9 +2239,9 @@ function renderAnnotations() {
         event.preventDefault();
         event.stopPropagation();
         hideChangesContextMenu();
-        hideTextAnnotationCtxMenu();
-        hideImageAnnotationCtxMenu();
-        openShapeAnnotationCtxMenu(event, a.id);
+        tcm.hideTextAnnotationCtxMenu();
+        sim.hideImageAnnotationCtxMenu();
+        sim.openShapeAnnotationCtxMenu(event, a.id);
       };
     }
     if (a.type === "image") {
@@ -4905,9 +2249,9 @@ function renderAnnotations() {
         event.preventDefault();
         event.stopPropagation();
         hideChangesContextMenu();
-        hideTextAnnotationCtxMenu();
-        hideShapeAnnotationCtxMenu();
-        openImageAnnotationCtxMenu(event, a.id);
+        tcm.hideTextAnnotationCtxMenu();
+        sim.hideShapeAnnotationCtxMenu();
+        sim.openImageAnnotationCtxMenu(event, a.id);
       };
     }
 
@@ -5437,6 +2781,94 @@ function syncPropertyInputs() {
   }
 }
 
+window.__editifySidebars.bind({
+  state,
+  changesList,
+  changesCount,
+  thumbsList,
+  pagesContainer,
+  get annotationLayer() {
+    return annotationLayer;
+  },
+  getActiveTab,
+  setActivePage,
+  t,
+  tr,
+  clamp,
+  annotationTypeLabel,
+  annotationSummary,
+  ensureChangesContextMenu,
+  syncPropertyInputs,
+  renderAnnotations
+});
+sim.bind({
+  state,
+  getActiveTab,
+  findAnnotationLocation,
+  commitActiveTextEditIfNeeded,
+  cancelPointerInteraction,
+  syncPropertyInputs,
+  renderAnnotations,
+  scheduleAutoSave,
+  captureSnapshot,
+  mergeShapeStyleFields,
+  defaultShapeFillAlphaAfterClear,
+  SHAPE_TYPES,
+  clamp,
+  propShapeFill,
+  propShapeFillOpacity,
+  propShapeStroke,
+  propShapeStrokeOpacity,
+  propShapeStrokeWidth,
+  propShapeBackdrop,
+  propShapeBackdropOpacity,
+  hideTextAnnotationCtxMenu: () => window.__editifyTextCtxMenu.hideTextAnnotationCtxMenu(),
+  hideChangesContextMenu
+});
+tcm.bind({
+  state,
+  getActiveTab,
+  findAnnotationLocation,
+  commitActiveTextEditIfNeeded,
+  cancelPointerInteraction,
+  syncPropertyInputs,
+  renderAnnotations,
+  scheduleAutoSave,
+  captureSnapshot,
+  get annotationLayer() {
+    return annotationLayer;
+  },
+  getAnnotationTextEditor,
+  syncTextFromEditor,
+  getSpellcheckBcp47FromUiLang,
+  t,
+  propFontFamily,
+  propFontSize,
+  propTextColor,
+  propBgColor,
+  propBgColorLabel,
+  hideShapeAnnotationCtxMenu: () => window.__editifyShapeImageCtxMenu.hideShapeAnnotationCtxMenu(),
+  hideImageAnnotationCtxMenu: () => window.__editifyShapeImageCtxMenu.hideImageAnnotationCtxMenu(),
+  hideChangesContextMenu
+});
+sw.bind({
+  getActiveTab,
+  tr,
+  t,
+  setStatus,
+  enqueuePdfJob,
+  buildDefaultOutputPath,
+  pagesContainer,
+  splitWorkspaceOverlay,
+  splitWorkspaceGroups,
+  splitWorkspaceValidateBtn,
+  splitWorkspaceAddGroupBtn,
+  splitWorkspaceCloseBtn
+});
+scheduleSidebarUpdate = window.__editifySidebars.scheduleSidebarUpdate;
+renderThumbnails = window.__editifySidebars.renderThumbnails;
+renderChanges = window.__editifySidebars.renderChanges;
+
 function applySelectedProperties() {
   const tab = getActiveTab();
   const item = getSelectedAnnotation();
@@ -5566,8 +2998,8 @@ function applyManiColorAfterPicker(inputEl) {
       v: hex,
       selectedId: state.selectedAnnotationId,
       backup: globalThis.__maniColorSelectionBackup,
-      shapeCtx: shapeCtxMenuTargetId,
-      textCtx: textCtxMenuTargetId,
+      shapeCtx: sim.getShapeCtxMenuTargetId(),
+      textCtx: tcm.getTextCtxMenuTargetId(),
       propShapeFillEl: Boolean(propShapeFill),
       propShapeStrokeWEl: Boolean(propShapeStrokeWidth)
     });
@@ -5595,25 +3027,25 @@ function applyManiColorAfterPicker(inputEl) {
     }
 
     if (id === "ctxTextColor" || id === "ctxTextBg") {
-      if (!textCtxMenuTargetId && globalThis.__maniCtxTextBackup) {
-        textCtxMenuTargetId = globalThis.__maniCtxTextBackup;
-        logText("maniColorRestoreTextCtx", { textCtxMenuTargetId });
+      if (!tcm.getTextCtxMenuTargetId() && globalThis.__maniCtxTextBackup) {
+        tcm.setTextCtxMenuTargetId(globalThis.__maniCtxTextBackup);
+        logText("maniColorRestoreTextCtx", { textCtxMenuTargetId: tcm.getTextCtxMenuTargetId() });
       }
       try {
-        ensureTextAnnotationCtxMenuEl()?.classList?.remove?.("hidden");
+        tcm.ensureTextAnnotationCtxMenuEl()?.classList?.remove?.("hidden");
       } catch {
         /* ignore */
       }
-      logText("maniColorBranchCtxText", { id, textCtxMenuTargetId, hex });
+      logText("maniColorBranchCtxText", { id, textCtxMenuTargetId: tcm.getTextCtxMenuTargetId(), hex });
       try {
         if (!clickManiColorValidateButtonForInputId(id)) {
           logText("maniColorCtxTextFallbackApply", { id });
-          applyTextCtxMenuBoxProps();
+          tcm.applyTextCtxMenuBoxProps();
         }
         window.maniPdfApi?.log?.("maniColor ctx text applied", { id, via: "clickOrFallback" });
       } catch (e) {
         try {
-          applyTextCtxMenuBoxProps();
+          tcm.applyTextCtxMenuBoxProps();
         } catch {
           /* ignore */
         }
@@ -5622,25 +3054,25 @@ function applyManiColorAfterPicker(inputEl) {
       return;
     }
     if (id.startsWith("ctxShape")) {
-      if (!shapeCtxMenuTargetId && globalThis.__maniCtxShapeBackup) {
-        shapeCtxMenuTargetId = globalThis.__maniCtxShapeBackup;
-        logText("maniColorRestoreShapeCtx", { shapeCtxMenuTargetId });
+      if (!sim.getShapeCtxMenuTargetId() && globalThis.__maniCtxShapeBackup) {
+        sim.setShapeCtxMenuTargetId(globalThis.__maniCtxShapeBackup);
+        logText("maniColorRestoreShapeCtx", { shapeCtxMenuTargetId: sim.getShapeCtxMenuTargetId() });
       }
       try {
-        ensureShapeAnnotationCtxMenuEl()?.classList?.remove?.("hidden");
+        sim.ensureShapeAnnotationCtxMenuEl()?.classList?.remove?.("hidden");
       } catch {
         /* ignore */
       }
-      logText("maniColorBranchCtxShape", { id, shapeCtxMenuTargetId, hex });
+      logText("maniColorBranchCtxShape", { id, shapeCtxMenuTargetId: sim.getShapeCtxMenuTargetId(), hex });
       try {
         if (!clickManiColorValidateButtonForInputId(id)) {
           logText("maniColorCtxShapeFallbackApply", { id });
-          applyShapeCtxMenuProps();
+          sim.applyShapeCtxMenuProps();
         }
         window.maniPdfApi?.log?.("maniColor ctx shape applied", { id, via: "clickOrFallback" });
       } catch (e) {
         try {
-          applyShapeCtxMenuProps();
+          sim.applyShapeCtxMenuProps();
         } catch {
           /* ignore */
         }
@@ -5706,8 +3138,8 @@ function applyManiColorAfterPicker(inputEl) {
 
 document.addEventListener("mani-color-open", (ev) => {
   globalThis.__maniColorSelectionBackup = state.selectedAnnotationId;
-  globalThis.__maniCtxShapeBackup = shapeCtxMenuTargetId;
-  globalThis.__maniCtxTextBackup = textCtxMenuTargetId;
+  globalThis.__maniCtxShapeBackup = sim.getShapeCtxMenuTargetId();
+  globalThis.__maniCtxTextBackup = tcm.getTextCtxMenuTargetId();
   logText("maniColorPickerOpen", {
     backup: globalThis.__maniColorSelectionBackup,
     shapeCtxBackup: globalThis.__maniCtxShapeBackup,
@@ -5887,12 +3319,6 @@ splitBtn?.addEventListener?.("click", () => {
   closeAllFlyoutMenus();
   createSplitJob();
 });
-splitWorkspaceCloseBtn?.addEventListener?.("click", () => closeSplitWorkspace());
-splitWorkspaceAddGroupBtn?.addEventListener?.("click", () => addSplitGroup());
-splitWorkspaceValidateBtn?.addEventListener?.("click", () => void validateSplitWorkspace());
-splitWorkspaceOverlay?.addEventListener?.("click", (e) => {
-  if (e.target === splitWorkspaceOverlay) closeSplitWorkspace();
-});
 toolbarAboutBtn?.addEventListener?.("click", () => {
   if (!aboutPopover) return;
   const isOpen = !aboutPopover.classList.contains("hidden");
@@ -5905,11 +3331,6 @@ toolbarAboutMenuItem?.addEventListener?.("click", () => {
     closeToolbarOptionsMenu();
   } catch {}
   showAboutPopoverNearOptions();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if (!splitWorkspaceOverlay || splitWorkspaceOverlay.classList.contains("hidden")) return;
-  closeSplitWorkspace();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
@@ -6011,9 +3432,9 @@ function closeAllFlyoutMenus() {
   closeToolbarDropdownMenus();
   hideChangesContextMenu();
   hideBlankCanvasCtxMenu();
-  hideTextAnnotationCtxMenu();
-  hideShapeAnnotationCtxMenu();
-  hideImageAnnotationCtxMenu();
+  tcm.hideTextAnnotationCtxMenu();
+  sim.hideShapeAnnotationCtxMenu();
+  sim.hideImageAnnotationCtxMenu();
 }
 function togglePdfToolsMenu() {
   if (!pdfToolsMenu || !pdfToolsBtn) return;
@@ -6591,34 +4012,34 @@ try {
 }
 applyLanguage();
 applySpellcheckLanguageBestEffort();
-wireTextAnnotationCtxMenu();
+tcm.wireTextAnnotationCtxMenu();
 document.addEventListener("selectionchange", () => {
   try {
-    if (!textCtxMenuTargetId) return;
-    const menu = ensureTextAnnotationCtxMenuEl();
+    if (!tcm.getTextCtxMenuTargetId()) return;
+    const menu = tcm.ensureTextAnnotationCtxMenuEl();
     if (!menu || menu.classList.contains("hidden")) return;
-    syncCtxTextFormatButtons();
-    void refreshTextSpellContextMenu();
+    tcm.syncCtxTextFormatButtons();
+    void tcm.refreshTextSpellContextMenu();
   } catch {
     /* ignore */
   }
 });
 setInterval(() => {
   try {
-    runBackgroundSpellScanForTextAnnotations();
+    tcm.runBackgroundSpellScanForTextAnnotations();
   } catch {
     /* ignore */
   }
 }, 6000);
 setTimeout(() => {
   try {
-    runBackgroundSpellScanForTextAnnotations();
+    tcm.runBackgroundSpellScanForTextAnnotations();
   } catch {
     /* ignore */
   }
 }, 800);
-wireShapeAnnotationCtxMenu();
-wireImageAnnotationCtxMenu();
+sim.wireShapeAnnotationCtxMenu();
+sim.wireImageAnnotationCtxMenu();
 try {
   window.maniPdfApi?.onPdfToolAction?.((action) => {
     closeAllFlyoutMenus();
@@ -6806,8 +4227,8 @@ try {
     try {
       const id = state.selectedAnnotationId;
       if (!id) return false;
-      textCtxMenuTargetId = id;
-      ctxMenuExecFormat(cmd);
+      tcm.setTextCtxMenuTargetId(id);
+      tcm.ctxMenuExecFormat(cmd);
       return true;
     } catch {
       return false;

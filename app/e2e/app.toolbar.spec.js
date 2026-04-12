@@ -1,6 +1,5 @@
 const { test, expect, _electron: electron } = require("@playwright/test");
 const electronPath = require("electron");
-const path = require("path");
 
 /**
  * Non-régression : barre HTML #appToolbar

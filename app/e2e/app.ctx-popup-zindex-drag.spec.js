@@ -53,11 +53,9 @@ async function openPdfFromMenu(app, page) {
   await expect(page.locator("#tabs .tab")).toHaveCount(1, { timeout: 30000 });
   await expect(page.locator("#pagesContainer .pdf-page").first()).toBeVisible({ timeout: 30000 });
   await waitForPdfPagesRendered(page);
-  await page.waitForFunction(
-    () => document.querySelector("#annotationLayer") != null,
-    null,
-    { timeout: 45000 }
-  );
+  await page.waitForFunction(() => document.querySelector("#annotationLayer") != null, null, {
+    timeout: 45000
+  });
 }
 
 test("z-index: modale couleur au-dessus du menu Forme + Valider visible", async () => {
@@ -74,7 +72,9 @@ test("z-index: modale couleur au-dessus du menu Forme + Valider visible", async 
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.rect").click({ button: "right", position: { x: 50, y: 50 } });
+  await page
+    .locator("#annotationLayer .annotation.rect")
+    .click({ button: "right", position: { x: 50, y: 50 } });
   const shapeMenu = page.locator("#shapeAnnotationCtxMenu");
   await expect(shapeMenu).toBeVisible({ timeout: 8000 });
 
@@ -119,7 +119,9 @@ test("saisie manuelle dans le menu Forme: le menu reste ouvert (focus)", async (
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.star").click({ button: "right", position: { x: 50, y: 50 } });
+  await page
+    .locator("#annotationLayer .annotation.star")
+    .click({ button: "right", position: { x: 50, y: 50 } });
   const shapeMenu = page.locator("#shapeAnnotationCtxMenu");
   await expect(shapeMenu).toBeVisible({ timeout: 8000 });
 
@@ -147,7 +149,9 @@ test("glisser le titre déplace le menu Forme", async () => {
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.ellipse").click({ button: "right", position: { x: 50, y: 50 } });
+  await page
+    .locator("#annotationLayer .annotation.ellipse")
+    .click({ button: "right", position: { x: 50, y: 50 } });
   const shapeMenu = page.locator("#shapeAnnotationCtxMenu");
   await expect(shapeMenu).toBeVisible({ timeout: 8000 });
 
@@ -187,7 +191,9 @@ test("hooks couleur: maniAfterColorCommit et openManiColorPicker définis", asyn
     { timeout: 20000 }
   );
   const ok = await page.evaluate(
-    () => typeof globalThis.maniAfterColorCommit === "function" && typeof window.openManiColorPicker === "function"
+    () =>
+      typeof globalThis.maniAfterColorCommit === "function" &&
+      typeof window.openManiColorPicker === "function"
   );
   expect(ok).toBe(true);
   await app.close();
@@ -207,7 +213,9 @@ test("nuancier: Valider applique #ff0000 au remplissage + menu Forme reste ouver
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.triangle").click({ button: "right", position: { x: 50, y: 50 } });
+  await page
+    .locator("#annotationLayer .annotation.triangle")
+    .click({ button: "right", position: { x: 50, y: 50 } });
   const shapeMenu = page.locator("#shapeAnnotationCtxMenu");
   await expect(shapeMenu).toBeVisible({ timeout: 8000 });
 
@@ -245,7 +253,9 @@ test("applyPanelColorForTest: même pipeline que le nuancier (remplissage ctx)",
     { timeout: 10000 }
   );
 
-  await page.locator("#annotationLayer .annotation.diamond").click({ button: "right", position: { x: 50, y: 50 } });
+  await page
+    .locator("#annotationLayer .annotation.diamond")
+    .click({ button: "right", position: { x: 50, y: 50 } });
   await expect(page.locator("#shapeAnnotationCtxMenu")).toBeVisible({ timeout: 8000 });
 
   const applied = await page.evaluate(() => {

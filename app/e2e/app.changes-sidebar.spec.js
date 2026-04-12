@@ -64,19 +64,29 @@ test("colonne Ajouts: clic sélectionne l’annotation sur la page", async () =>
   await expect(rows).toHaveCount(2, { timeout: 10000 });
 
   const ids = await page.evaluate(() =>
-    [...document.querySelectorAll("#changesList .change-item")].map((r) => r.dataset.id).filter(Boolean)
+    [...document.querySelectorAll("#changesList .change-item")]
+      .map((r) => r.dataset.id)
+      .filter(Boolean)
   );
   expect(ids.length).toBe(2);
 
   await rows.nth(0).click();
   await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveCount(1);
-  await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveAttribute("data-id", ids[0]);
+  await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveAttribute(
+    "data-id",
+    ids[0]
+  );
 
   await rows.nth(1).click();
   await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveCount(1);
-  await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveAttribute("data-id", ids[1]);
+  await expect(page.locator("#annotationLayer .annotation.text.selected")).toHaveAttribute(
+    "data-id",
+    ids[1]
+  );
 
-  const stateId = await page.evaluate(() => window.__maniE2E?.getUiState?.().selectedAnnotationId || null);
+  const stateId = await page.evaluate(
+    () => window.__maniE2E?.getUiState?.().selectedAnnotationId || null
+  );
   expect(stateId).toBe(ids[1]);
 
   await app.close();

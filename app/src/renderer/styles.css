@@ -524,13 +524,30 @@ label.color-field.is-transparent button.mani-color-swatch.mani-swatch-transparen
   margin-bottom: 12px;
 }
 
+/* Poignées de déplacement (menus contextuels, modale couleur) : zone visible */
 .mani-drag-handle {
   cursor: grab;
   user-select: none;
+  background: #eceef1;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .mani-drag-handle:active {
   cursor: grabbing;
+}
+
+/* Titre du menu ctx : bandeau sur toute la largeur du panneau */
+.text-ctx-menu > .mani-drag-handle.text-ctx-menu-title:first-child {
+  margin: -10px -12px 8px -12px;
+  padding: 8px 12px;
+  border-radius: 9px 9px 0 0;
+}
+
+/* Modale pipette / nuancier : barre titre alignée sur le panneau */
+.mani-color-modal-panel > .mani-color-modal-header.mani-drag-handle {
+  margin: -16px -16px 12px -16px;
+  padding: 10px 16px;
+  border-radius: 9px 9px 0 0;
 }
 
 .mani-color-modal-close {
