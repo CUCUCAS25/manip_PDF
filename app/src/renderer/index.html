@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP : ressources locales + worker pdf.js + service Python (127.0.0.1) ; styles inline via JS (annotations). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:* blob: data: file:;"
+    />
     <title>Editify</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -46,6 +51,9 @@
             <button type="button" id="protectBtn" role="menuitem" data-tooltip="Protège le PDF actif avec un mot de passe.">🔒 Protéger</button>
             <button type="button" id="unprotectBtn" role="menuitem" data-tooltip="Retire la protection d'un PDF avec son mot de passe.">🔓 Déprotéger</button>
             <div class="menu-section-label" id="menuInfoLabel" role="presentation">Infos</div>
+            <button type="button" id="toolbarSessionLogMenuItem" role="menuitem" data-tooltip="Historique des jobs et actions de la session.">
+              📋 Journal de session
+            </button>
             <button type="button" id="toolbarAboutMenuItem" role="menuitem" data-tooltip="Informations sur Editify.">❔ À propos</button>
           </div>
         </div>
@@ -71,6 +79,24 @@
         <p id="aboutRgpd"></p>
       </div>
     </div>
+    <div
+      id="sessionLogModal"
+      class="session-log-modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sessionLogTitleEl"
+      aria-hidden="true"
+    >
+      <div class="session-log-backdrop" data-session-log-dismiss tabindex="-1"></div>
+      <div class="session-log-panel">
+        <div class="session-log-header">
+          <strong id="sessionLogTitleEl">Journal de session</strong>
+          <button type="button" id="sessionLogCloseBtn" class="session-log-close" aria-label="Fermer">✕</button>
+        </div>
+        <p id="sessionLogHint" class="session-log-hint muted"></p>
+        <div id="sessionLogBody" class="session-log-body" tabindex="0"></div>
+      </div>
+    </div>
     <header>
       <div class="header-title-row">
         <div class="app-title-left">
@@ -79,7 +105,7 @@
         </div>
         <span id="toolbarF10Hint" class="header-f10-hint" role="note"></span>
       </div>
-      <div class="actions">
+      <div class="actions actions-row-primary">
         <div class="actions-group" aria-label="Annotation">
           <button id="addTextBtn" data-tooltip="Ajoute une zone de texte modifiable sur la page active.">🔤 + Texte</button>
           <button id="addShapeBtn" data-tooltip="Ajoute une forme: clique puis choisis la forme dans la liste.">🔷 + Forme</button>
@@ -89,7 +115,42 @@
           <button id="undoBtn" data-tooltip="Annule la dernière modification.">↶ Undo</button>
           <button id="redoBtn" data-tooltip="Rétablit la modification annulée.">↷ Redo</button>
         </div>
-
+      </div>
+      <div class="header-toolbar-secondary" aria-label="Affichage et proprietes">
+        <div class="actions-group toolbar-zoom-fit-group" aria-label="Affichage">
+          <button id="fitWidthBtn" data-tooltip="Ajuste le PDF a la largeur de la fenetre.">↔️ Fit largeur</button>
+          <button id="fitPageBtn" data-tooltip="Ajuste le PDF entier dans la fenetre.">🗐 Fit page</button>
+        </div>
+        <div id="textPropsPanel" class="text-props-panel hidden" aria-label="Propriétés du champ texte sélectionné">
+        <div class="color-row">
+          <label class="color-field" id="propTextColorLabel"
+            >Txt
+            <input id="propTextColor" type="hidden" value="#111111" />
+            <button type="button" class="mani-color-swatch" data-mani-color-for="propTextColor" aria-label="Couleur du texte"></button>
+          </label>
+          <button id="validateTextColorBtn" type="button" class="color-validate" data-tooltip="Applique la couleur de texte sélectionnée.">✅ Valider</button>
+        </div>
+        <div class="color-row">
+          <label class="color-field is-transparent" id="propBgColorLabel"
+            >Fond
+            <input id="propBgColor" type="hidden" value="#ffffff" />
+            <button type="button" class="mani-color-swatch" data-mani-color-for="propBgColor" aria-label="Couleur de fond"></button>
+          </label>
+          <button id="applyBgBtn" type="button" class="color-validate" data-tooltip="Applique la couleur de fond sélectionnée.">✅ Valider</button>
+        </div>
+        <label><span id="propMarginsLabel">Marges</span> <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
+        <label
+          ><span id="propFontFamilyLabel">Police</span>
+          <select id="propFontFamily">
+            <option value="Arial" selected>Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Georgia">Georgia</option>
+          </select>
+        </label>
+        <label><span id="propFontSizeLabel">Taille</span> <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
+        <button id="applyPropsBtn" data-tooltip="Applique les propriétés au champ texte sélectionné.">✅ Appliquer</button>
+        </div>
         <div id="shapePropsPanel" class="shape-props-panel hidden" aria-label="Proprietes de la forme selectionnee">
           <div class="color-row">
             <label
@@ -120,48 +181,11 @@
           </div>
           <label><span id="shapeBackdropOpLabel">Opacite fond (%)</span> <input id="propShapeBackdropOpacity" type="number" min="0" max="100" value="0" /></label>
         </div>
-
-        <div class="actions-group" aria-label="Affichage">
-          <button id="fitWidthBtn" data-tooltip="Ajuste le PDF a la largeur de la fenetre.">↔️ Fit largeur</button>
-          <button id="fitPageBtn" data-tooltip="Ajuste le PDF entier dans la fenetre.">🗐 Fit page</button>
-        </div>
-      </div>
-      <div id="textPropsPanel" class="text-props-panel hidden" aria-label="Propriétés du champ texte sélectionné">
-        <div class="color-row">
-          <label class="color-field" id="propTextColorLabel"
-            >Txt
-            <input id="propTextColor" type="hidden" value="#111111" />
-            <button type="button" class="mani-color-swatch" data-mani-color-for="propTextColor" aria-label="Couleur du texte"></button>
-          </label>
-          <button id="validateTextColorBtn" type="button" class="color-validate" data-tooltip="Applique la couleur de texte sélectionnée.">✅ Valider</button>
-        </div>
-        <div class="color-row">
-          <label class="color-field is-transparent" id="propBgColorLabel"
-            >Fond
-            <input id="propBgColor" type="hidden" value="#ffffff" />
-            <button type="button" class="mani-color-swatch" data-mani-color-for="propBgColor" aria-label="Couleur de fond"></button>
-          </label>
-          <button id="applyBgBtn" type="button" class="color-validate" data-tooltip="Applique la couleur de fond sélectionnée.">✅ Valider</button>
-        </div>
-        <label><span id="propMarginsLabel">Marges</span> <input id="propPadding" type="number" min="0" max="64" value="6" /></label>
-        <label
-          ><span id="propFontFamilyLabel">Police</span>
-          <select id="propFontFamily">
-            <option value="Arial" selected>Arial</option>
-            <option value="Times New Roman">Times New Roman</option>
-            <option value="Courier New">Courier New</option>
-            <option value="Georgia">Georgia</option>
-          </select>
-        </label>
-        <label><span id="propFontSizeLabel">Taille</span> <input id="propFontSize" type="number" min="8" max="96" value="14" /></label>
-        <button id="applyPropsBtn" data-tooltip="Applique les propriétés au champ texte sélectionné.">✅ Appliquer</button>
       </div>
     </header>
 
     <main>
       <section class="tabs" id="tabs"></section>
-      <section id="jobsPanel"></section>
-      <section id="sensitivePanel"></section>
       <section class="workbench" aria-label="Espace de travail">
         <aside id="thumbsBar" class="sidebar sidebar-left" aria-label="Miniatures">
           <div class="sidebar-header">
@@ -378,10 +402,17 @@
     <script src="./renderer-text-ctx.js"></script>
     <script src="./renderer-utils.js"></script>
     <script src="./renderer-toast.js"></script>
+    <script src="../lib/session-log-store.js"></script>
+    <script src="./renderer-session-log.js"></script>
     <script src="./renderer-sidebars.js"></script>
     <script src="./renderer-text-ctx-menu.js"></script>
     <script src="./renderer-shape-image-ctx-menu.js"></script>
     <script src="./renderer-split-workspace.js"></script>
+    <script src="./renderer-jobs.js"></script>
+    <script src="./renderer-app-chrome.js"></script>
+    <script src="./renderer-tooltips.js"></script>
+    <script src="./renderer-session.js"></script>
+    <script src="./renderer-pdf-viewer.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

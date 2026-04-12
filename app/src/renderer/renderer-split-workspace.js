@@ -1,6 +1,6 @@
 /**
  * Overlay Split par groupes (brouillon localStorage, drag & drop des miniatures).
- * `bind()` depuis renderer.js après `enqueuePdfJob` / `buildDefaultOutputPath`.
+ * `bind()` depuis renderer.js après `__editifyJobs.bind()` (fournit `enqueuePdfJob` / `buildDefaultOutputPath`).
  */
 (function () {
   "use strict";

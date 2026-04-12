@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld("maniPdfApi", {
   onToolbarF10Toggle: (cb) => ipcRenderer.on("toolbar:f10-toggle", () => cb()),
   onPdfToolAction: (cb) => ipcRenderer.on("app:pdf-tool", (_, action) => cb(action)),
   onAboutRequested: (cb) => ipcRenderer.on("app:about", () => cb()),
+  onSessionLogRequested: (cb) => ipcRenderer.on("app:session-log", () => cb()),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   setSpellcheckLanguages: (langs) => ipcRenderer.invoke("spellcheck:set-languages", langs),
   spellcheckAnalyze: (payload) => ipcRenderer.invoke("spellcheck:analyze", payload),

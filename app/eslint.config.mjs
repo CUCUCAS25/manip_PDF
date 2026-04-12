@@ -5,6 +5,7 @@ import globals from "globals";
 /**
  * Lint progressif : e2e, scripts, processus principal Electron (`src/main`),
  * modules renderer légers (+ `renderer-text-html.js`, etc.) — pas `renderer.js` / `renderer-i18n-data.js` (gros fichiers).
+ * `renderer-pdf-viewer.js` : linté comme les autres modules renderer.
  */
 export default [
   js.configs.recommended,
@@ -60,6 +61,20 @@ export default [
     }
   },
   {
+    files: ["src/lib/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        ...globals.node,
+        ...globals.browser
+      }
+    },
+    rules: {
+      "no-empty": ["error", { allowEmptyCatch: true }]
+    }
+  },
+  {
     files: [
       "src/renderer/mani-color-picker.js",
       "src/renderer/floating-panel-drag.js",
@@ -67,10 +82,16 @@ export default [
       "src/renderer/renderer-text-ctx.js",
       "src/renderer/renderer-utils.js",
       "src/renderer/renderer-toast.js",
+      "src/renderer/renderer-session-log.js",
       "src/renderer/renderer-sidebars.js",
       "src/renderer/renderer-text-ctx-menu.js",
       "src/renderer/renderer-shape-image-ctx-menu.js",
-      "src/renderer/renderer-split-workspace.js"
+      "src/renderer/renderer-split-workspace.js",
+      "src/renderer/renderer-jobs.js",
+      "src/renderer/renderer-app-chrome.js",
+      "src/renderer/renderer-tooltips.js",
+      "src/renderer/renderer-session.js",
+      "src/renderer/renderer-pdf-viewer.js"
     ],
     languageOptions: {
       ecmaVersion: 2022,

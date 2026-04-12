@@ -289,6 +289,16 @@ function createMenu() {
             }
           ]
         },
+        {
+          label: "Journal de session",
+          click: () => {
+            try {
+              mainWindow?.webContents?.send?.("app:session-log");
+            } catch {
+              /* ignore */
+            }
+          }
+        },
         { type: "separator" },
         {
           label: "Outils PDF",

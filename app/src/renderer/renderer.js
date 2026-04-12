@@ -16,10 +16,16 @@
  * - `renderer-text-ctx.js` : helpers format / sélection / remplacement (`window.__editifyTextCtxHelpers`).
  * - `renderer-utils.js` : logs, ids, clone presse-papiers (`window.__editifyUtils`).
  * - `renderer-toast.js` : toasts (`window.__editifyToast`).
+ * - `renderer-session-log.js` : journal RAM session (`window.__editifySessionLog`).
  * - `renderer-sidebars.js` : colonnes miniatures + ajouts (`window.__editifySidebars` + `bind()` après définition des dépendances).
  * - `renderer-text-ctx-menu.js` : menu contextuel texte + orthographe (`window.__editifyTextCtxMenu` + `bind()` après `syncPropertyInputs`).
  * - `renderer-shape-image-ctx-menu.js` : menus forme + image (`window.__editifyShapeImageCtxMenu`, `sim.bind()` avant `tcm.bind()`).
- * - `renderer-split-workspace.js` : overlay Split par groupes (`window.__editifySplitWorkspace`, `sw.bind()` après `enqueuePdfJob`).
+ * - `renderer-split-workspace.js` : overlay Split par groupes (`window.__editifySplitWorkspace`, `sw.bind()` après `jobs.bind()` / `enqueuePdfJob`).
+ * - `renderer-jobs.js` : file d'attente PDF, journal session + toasts (merge/compress/protect…) (`window.__editifyJobs`, `jobs.bind()` avant `sw.bind()`).
+ * - `renderer-app-chrome.js` : barre d’outils HTML, menus, À propos, menu canvas vierge (`window.__editifyAppChrome`, `chrome.bind()` après `savePdfAs`).
+ * - `renderer-tooltips.js` : infobulles `[data-tooltip]` (`window.__editifyTooltips`, `tooltips.bind()` après `sw.bind()`).
+ * - `renderer-session.js` : persistance session onglets/annotations (`window.__editifySession`, `session.bind()` après `__editifySidebars.bind()`).
+ * - `renderer-pdf-viewer.js` : rendu PDF, zoom, calques page, DnD (`window.__editifyPdfViewer`, `bind()` après `__editifySidebars.bind()`, avant `session.bind()`).
  */
 if (!window.__editifyTextHtml) {
   throw new Error("[editify] Charger renderer-text-html.js avant renderer.js (voir index.html).");
@@ -45,6 +51,26 @@ if (!window.__editifyShapeImageCtxMenu) {
 if (!window.__editifySplitWorkspace) {
   throw new Error("[editify] Charger renderer-split-workspace.js avant renderer.js (voir index.html).");
 }
+if (!window.__editifyJobs) {
+  throw new Error("[editify] Charger renderer-jobs.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyAppChrome) {
+  throw new Error("[editify] Charger renderer-app-chrome.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyTooltips) {
+  throw new Error("[editify] Charger renderer-tooltips.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifySession) {
+  throw new Error("[editify] Charger renderer-session.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifyPdfViewer) {
+  throw new Error("[editify] Charger renderer-pdf-viewer.js avant renderer.js (voir index.html).");
+}
+if (!window.__editifySessionLog) {
+  throw new Error("[editify] Charger renderer-session-log.js avant renderer.js (voir index.html).");
+}
+const pdfv = window.__editifyPdfViewer;
+const sessionLog = window.__editifySessionLog;
 const {
   sanitizeTextHtml,
   stripTagsForPlain,
@@ -67,6 +93,10 @@ const { ensureToastRoot, dismissToast, showToast } = window.__editifyToast;
 const tcm = window.__editifyTextCtxMenu;
 const sim = window.__editifyShapeImageCtxMenu;
 const sw = window.__editifySplitWorkspace;
+const jobs = window.__editifyJobs;
+const chrome = window.__editifyAppChrome;
+const tooltips = window.__editifyTooltips;
+const session = window.__editifySession;
 /** Assignées après `bind()` en fin de fichier (dépendances `getActiveTab`, `renderAnnotations`, …). */
 let scheduleSidebarUpdate;
 let renderThumbnails;
@@ -131,18 +161,17 @@ const changesCount = document.getElementById("changesCount");
 const textPropsPanel = document.getElementById("textPropsPanel");
 const propTextColorLabel = document.getElementById("propTextColorLabel");
 const propBgColorLabel = document.getElementById("propBgColorLabel");
-let pdfCanvas = null;
-let annotationLayer = null;
-let dropOverlay = null;
+const pdfLayerRef = {
+  annotationLayer: null,
+  dropOverlay: null,
+  pdfCanvas: null
+};
 
-const jobsPanel = document.getElementById("jobsPanel");
-const sensitivePanel = document.getElementById("sensitivePanel");
 const toolTip = document.getElementById("toolTip");
 const shapeModal = document.getElementById("shapeModal");
 const shapeGrid = document.getElementById("shapeGrid");
 const closeShapeModalBtn = document.getElementById("closeShapeModalBtn");
 // Langue : menu natif Options > Langue + barre d'outils custom.
-let activeTooltipTarget = null;
 const pdfToolsBtn = document.getElementById("pdfToolsBtn");
 const pdfToolsMenu = document.getElementById("pdfToolsMenu");
 const toolbarFileBtn = document.getElementById("toolbarFileBtn");
@@ -150,6 +179,12 @@ const toolbarFileMenu = document.getElementById("toolbarFileMenu");
 const toolbarOptionsBtn = document.getElementById("toolbarOptionsBtn");
 const toolbarOptionsMenu = document.getElementById("toolbarOptionsMenu");
 const toolbarAboutMenuItem = document.getElementById("toolbarAboutMenuItem");
+const toolbarSessionLogMenuItem = document.getElementById("toolbarSessionLogMenuItem");
+const sessionLogModal = document.getElementById("sessionLogModal");
+const sessionLogBody = document.getElementById("sessionLogBody");
+const sessionLogCloseBtn = document.getElementById("sessionLogCloseBtn");
+const sessionLogTitleEl = document.getElementById("sessionLogTitleEl");
+const sessionLogHint = document.getElementById("sessionLogHint");
 const toolbarOpenPdfBtn = document.getElementById("toolbarOpenPdfBtn");
 const toolbarSaveAsBtn = document.getElementById("toolbarSaveAsBtn");
 const toolbarQuitBtn = document.getElementById("toolbarQuitBtn");
@@ -200,13 +235,9 @@ function loadPreferredLanguage() {
     /* ignore */
   }
 }
-let autosaveDebounce = null;
 let interactionMode = null; // "drag" | "resize" | null
 let suppressClickUntil = 0;
 let activePointerCleanup = null;
-let pendingZoomAnchor = null;
-let activePdfRenderToken = 0;
-let activePdfRenderTasks = [];
 let pendingSingleClickRenderTimer = null;
 let lastTextClickAt = 0;
 let lastTextClickId = null;
@@ -266,7 +297,7 @@ function commitActiveTextEditIfNeeded(targetAnnotationId) {
   if (!tab || !state.editingAnnotationId) return;
   if (state.editingAnnotationId === targetAnnotationId) return;
   const id = state.editingAnnotationId;
-  const editingNode = annotationLayer?.querySelector?.(`[data-id="${id}"]`);
+  const editingNode = pdfLayerRef.annotationLayer?.querySelector?.(`[data-id="${id}"]`);
   const item = findAnnotationLocation(tab, id)?.item;
   const ed = editingNode ? getAnnotationTextEditor(editingNode) : null;
   if (item && item.type === "text" && ed) {
@@ -274,7 +305,7 @@ function commitActiveTextEditIfNeeded(targetAnnotationId) {
       captureSnapshot(tab);
       syncTextFromEditor(item, ed);
     } catch {}
-    scheduleAutoSave();
+    session.scheduleAutoSave();
   }
   state.editingAnnotationId = null;
 }
@@ -351,24 +382,6 @@ document.addEventListener(
   true
 );
 
-// Clic droit sur zone vierge du canvas => menu "Ajouts rapides".
-document.addEventListener(
-  "contextmenu",
-  (e) => {
-    try {
-      // Ne pas interférer avec les menus contextuels existants.
-      if (
-        e.target?.closest?.(
-          "#textAnnotationCtxMenu,#shapeAnnotationCtxMenu,#imageAnnotationCtxMenu,#changesContextMenu,#maniColorModal"
-        )
-      )
-        return;
-      showBlankCanvasCtxMenu(e);
-    } catch {}
-  },
-  true
-);
-
 // ---------------------------
 // Context menu (sidebar "Ajouts")
 // ---------------------------
@@ -401,189 +414,6 @@ function hideChangesContextMenu() {
     changesContextMenu?.classList?.add?.("hidden");
   } catch {}
 }
-
-// ---------------------------
-// Context menu (canvas vierge) : ajouts rapides
-// ---------------------------
-function hideBlankCanvasCtxMenu() {
-  try {
-    blankCanvasCtxMenu?.classList?.add?.("hidden");
-  } catch {}
-}
-
-function showBlankCanvasCtxMenu(event) {
-  if (!blankCanvasCtxMenu) return;
-  const tab = getActiveTab();
-  if (!tab) return;
-  // Ne pas ouvrir si clic droit sur une annotation (menus dédiés).
-  if (event?.target?.closest?.(".annotation")) return;
-  if (!event?.target?.closest?.(".viewer")) return;
-  try {
-    event.preventDefault();
-    event.stopPropagation();
-  } catch {}
-  // Met à jour la position curseur pour insérer au bon endroit.
-  capturePointerInPage(event);
-  closeAllFlyoutMenus();
-  hideChangesContextMenu();
-  tcm.hideTextAnnotationCtxMenu();
-  sim.hideShapeAnnotationCtxMenu();
-  sim.hideImageAnnotationCtxMenu();
-
-  // Positionner le menu à l'écran (clamp pour éviter overflow).
-  try {
-    const menuW = 240;
-    const menuH = 160;
-    const margin = 10;
-    const x = clamp((event.clientX ?? 0) + 2, margin, window.innerWidth - menuW - margin);
-    const y = clamp((event.clientY ?? 0) + 2, margin, window.innerHeight - menuH - margin);
-    blankCanvasCtxMenu.style.left = `${x}px`;
-    blankCanvasCtxMenu.style.top = `${y}px`;
-  } catch {}
-  blankCanvasCtxMenu.classList.remove("hidden");
-}
-
-// ---------------------------
-// À propos (popover)
-// ---------------------------
-function hideAboutPopover() {
-  try {
-    aboutPopover?.classList?.add?.("hidden");
-  } catch {}
-}
-
-function wireAboutExternalLinksOnce() {
-  if (!aboutPopover) return;
-  if (aboutPopover.dataset.wiredLinks === "1") return;
-  aboutPopover.dataset.wiredLinks = "1";
-  aboutPopover.addEventListener("click", async (e) => {
-    const a = e.target?.closest?.("a[href]");
-    if (!a) return;
-    const href = a.getAttribute("href") || "";
-    if (!href) return;
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const r = await window.maniPdfApi?.openExternal?.(href);
-      if (!r?.ok) {
-        setStatus(t("stLinkOpenFailed"));
-      }
-    } catch {
-      setStatus(t("stLinkOpenFailed"));
-    }
-  });
-}
-
-function showAboutPopover() {
-  if (!aboutPopover || !toolbarAboutBtn) return;
-  try {
-    // Version affichée (statique côté renderer).
-    if (aboutVersion) aboutVersion.textContent = "v1.0.0";
-  } catch {}
-  closeAllFlyoutMenus();
-  const r = toolbarAboutBtn.getBoundingClientRect();
-  const margin = 10;
-  const x = clamp(Math.floor(r.left), margin, window.innerWidth - 520 - margin);
-  const y = clamp(Math.floor(r.bottom + 8), margin, window.innerHeight - 220 - margin);
-  aboutPopover.style.left = `${x}px`;
-  aboutPopover.style.top = `${y}px`;
-  aboutPopover.classList.remove("hidden");
-  wireAboutExternalLinksOnce();
-}
-
-function showAboutPopoverNearOptions() {
-  if (!aboutPopover || !toolbarOptionsBtn) return;
-  try {
-    if (aboutVersion) aboutVersion.textContent = "v1.0.0";
-  } catch {}
-  closeAllFlyoutMenus();
-  const r = toolbarOptionsBtn.getBoundingClientRect();
-  const margin = 10;
-  const x = clamp(Math.floor(r.left), margin, window.innerWidth - 520 - margin);
-  const y = clamp(Math.floor(r.bottom + 8), margin, window.innerHeight - 220 - margin);
-  aboutPopover.style.left = `${x}px`;
-  aboutPopover.style.top = `${y}px`;
-  aboutPopover.classList.remove("hidden");
-  wireAboutExternalLinksOnce();
-}
-
-/**
- * True si le pointeur est dans le rectangle d'un menu flottant (y compris les « gaps » flex où target peut être le PDF derrière).
- */
-function pointerEventInsideElementBox(event, el) {
-  try {
-    if (!el || el.classList.contains("hidden")) return false;
-    const r = el.getBoundingClientRect();
-    const x = event.clientX ?? 0;
-    const y = event.clientY ?? 0;
-    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-  } catch {
-    return false;
-  }
-}
-
-/** Clic sur la modale nuancier : ne doit pas fermer les popups Forme / Texte / Image. */
-function eventTargetsManiColorModal(event) {
-  try {
-    if (event.target?.closest?.("#maniColorModal")) return true;
-    const path = event.composedPath?.() || [];
-    for (const n of path) {
-      if (n instanceof Element && (n.id === "maniColorModal" || n.closest?.("#maniColorModal"))) return true;
-    }
-  } catch {}
-  return false;
-}
-
-document.addEventListener(
-  "mousedown",
-  (e) => {
-    if (e.button !== 0) return;
-    const inManiColor = eventTargetsManiColorModal(e);
-    const textCtxEl = document.getElementById("textAnnotationCtxMenu");
-    const shapeCtxEl = document.getElementById("shapeAnnotationCtxMenu");
-    const imageCtxEl = document.getElementById("imageAnnotationCtxMenu");
-    const blankCtxEl = document.getElementById("blankCanvasCtxMenu");
-    const changesEl = document.getElementById("changesContextMenu");
-
-    if (!e.target?.closest?.("#changesContextMenu") && !pointerEventInsideElementBox(e, changesEl)) hideChangesContextMenu();
-    if (
-      !e.target?.closest?.("#textAnnotationCtxMenu") &&
-      !pointerEventInsideElementBox(e, textCtxEl) &&
-      !inManiColor
-    ) {
-      tcm.hideTextAnnotationCtxMenu();
-    }
-    if (
-      !e.target?.closest?.("#shapeAnnotationCtxMenu") &&
-      !pointerEventInsideElementBox(e, shapeCtxEl) &&
-      !inManiColor
-    ) {
-      try {
-        logText("ctxShapeDismissMouseDown", {
-          tag: e.target?.nodeName,
-          id: e.target?.id,
-          x: e.clientX,
-          y: e.clientY,
-          inMenuBox: pointerEventInsideElementBox(e, shapeCtxEl),
-          inManiColor
-        });
-      } catch {
-        /* ignore */
-      }
-      sim.hideShapeAnnotationCtxMenu();
-    }
-    if (
-      !e.target?.closest?.("#imageAnnotationCtxMenu") &&
-      !pointerEventInsideElementBox(e, imageCtxEl) &&
-      !inManiColor
-    ) {
-      sim.hideImageAnnotationCtxMenu();
-    }
-    if (!e.target?.closest?.("#blankCanvasCtxMenu") && !pointerEventInsideElementBox(e, blankCtxEl)) hideBlankCanvasCtxMenu();
-    if (!e.target?.closest?.("#aboutPopover") && e.target !== toolbarAboutBtn) hideAboutPopover();
-  },
-  true
-);
 
 // Menu contextuel (fenêtre texte) : renderer-text-ctx-menu.js — `tcm`, `tcm.bind()` après `syncPropertyInputs`.
 
@@ -696,7 +526,7 @@ function scheduleAutoGrowText(tab, item, node, source = "render") {
         lastAutoGrowHeightById.set(item.id, nextH);
 
         renderAnnotations();
-        scheduleAutoSave();
+        session.scheduleAutoSave();
       }
     } catch {}
   });
@@ -989,6 +819,7 @@ const TOOLTIP_BY_ELEMENT_ID = {
   protectBtn: "ttProtect",
   unprotectBtn: "ttUnprotect",
   toolbarAboutMenuItem: "ttAboutMenu",
+  toolbarSessionLogMenuItem: "ttSessionLog",
   toolbarAboutBtn: "ttAboutBtn",
   toolbarCloseBtn: "ttCloseApp",
   addTextBtn: "ttAddText",
@@ -1095,6 +926,9 @@ function applyLanguage() {
   if (toolbarSaveAsBtn) toolbarSaveAsBtn.textContent = t("saveAs");
   if (toolbarQuitBtn) toolbarQuitBtn.textContent = t("quit");
   if (toolbarAboutMenuItem) toolbarAboutMenuItem.textContent = t("about");
+  if (toolbarSessionLogMenuItem) toolbarSessionLogMenuItem.textContent = t("menuSessionLog");
+  if (sessionLogTitleEl) sessionLogTitleEl.textContent = t("sessionLogTitle");
+  if (sessionLogHint) sessionLogHint.textContent = t("sessionLogHint");
   if (thumbsTitle) thumbsTitle.textContent = t("thumbs");
   if (changesTitle) changesTitle.textContent = t("changes");
   if (prevBtn) prevBtn.textContent = t("prevPage");
@@ -1245,6 +1079,11 @@ function applyLanguage() {
   } catch {
     /* ignore */
   }
+  try {
+    pdfv.updateZoomUI();
+  } catch {
+    /* ignore */
+  }
 }
 
 function setLanguage(lang) {
@@ -1303,7 +1142,7 @@ function applySpellcheckLanguageBestEffort() {
 }
 
 function getSafeZoneSize() {
-  const rect = annotationLayer?.getBoundingClientRect?.();
+  const rect = pdfLayerRef.annotationLayer?.getBoundingClientRect?.();
   if (!rect) return { width: 0, height: 0 };
   return {
     width: Math.max(0, Math.floor(rect.width)),
@@ -1425,37 +1264,6 @@ function setStatus(message) {
   else statusBar.textContent = safe;
 }
 
-function captureZoomAnchor() {
-  if (!viewer) return null;
-  return {
-    centerX: (viewer.scrollLeft || 0) + viewer.clientWidth / 2,
-    centerY: (viewer.scrollTop || 0) + viewer.clientHeight / 2,
-    prevScrollW: viewer.scrollWidth || 0,
-    prevScrollH: viewer.scrollHeight || 0
-  };
-}
-
-function applyZoomAnchorIfAny() {
-  if (!pendingZoomAnchor || !viewer) return;
-  const { centerX, centerY, prevScrollW, prevScrollH } = pendingZoomAnchor;
-  pendingZoomAnchor = null;
-  const nextScrollW = viewer.scrollWidth || 0;
-  const nextScrollH = viewer.scrollHeight || 0;
-  if (prevScrollW <= 0 || prevScrollH <= 0 || nextScrollW <= 0 || nextScrollH <= 0) return;
-
-  const rx = nextScrollW / prevScrollW;
-  const ry = nextScrollH / prevScrollH;
-  if (!Number.isFinite(rx) || !Number.isFinite(ry) || rx <= 0 || ry <= 0) return;
-
-  const targetCenterX = centerX * rx;
-  const targetCenterY = centerY * ry;
-  const nextLeft = targetCenterX - viewer.clientWidth / 2;
-  const nextTop = targetCenterY - viewer.clientHeight / 2;
-
-  viewer.scrollLeft = Math.max(0, Math.min(nextLeft, Math.max(0, nextScrollW - viewer.clientWidth)));
-  viewer.scrollTop = Math.max(0, Math.min(nextTop, Math.max(0, nextScrollH - viewer.clientHeight)));
-}
-
 function updateWelcomeVisibility() {
   if (!welcomeScreen) return;
   if (state.tabs.length > 0) {
@@ -1463,167 +1271,6 @@ function updateWelcomeVisibility() {
   } else {
     welcomeScreen.classList.remove("hidden");
   }
-}
-
-function scheduleAutoSave() {
-  if (autosaveDebounce) clearTimeout(autosaveDebounce);
-  autosaveDebounce = setTimeout(() => {
-    autosaveDebounce = null;
-    saveSession().catch(() => {});
-  }, 600);
-}
-
-function cloneForSession(obj) {
-  try {
-    return JSON.parse(JSON.stringify(obj));
-  } catch {
-    return obj;
-  }
-}
-
-async function saveSession() {
-  try {
-    if (window.maniPdfApi?.isE2E?.()) return;
-    const tabsPayload = state.tabs.map((t) => ({
-      id: t.id,
-      name: t.name,
-      path: t.path,
-      currentPage: t.currentPage || 1,
-      annotationsByPage: cloneForSession(t.annotationsByPage || {}),
-      viewportByPage: cloneForSession(t.viewportByPage || {}),
-      undoStack: Array.isArray(t.undoStack) ? cloneForSession(t.undoStack) : [],
-      redoStack: Array.isArray(t.redoStack) ? cloneForSession(t.redoStack) : []
-    }));
-    await window.maniPdfApi.saveSession({
-      tabs: tabsPayload,
-      activeTabId: state.activeTabId
-    });
-  } catch {
-    /* ignore */
-  }
-}
-
-async function loadSession() {
-  try {
-    if (window.maniPdfApi?.isE2E?.()) return;
-    const r = await window.maniPdfApi.loadSession();
-    if (!r?.ok || !r.data?.tabs?.length) return;
-    const restored = [];
-    for (const row of r.data.tabs) {
-      if (!row?.path) continue;
-      const open = await window.maniPdfApi.openPdf(row.path);
-      if (!open.ok) continue;
-      restored.push({
-        id: row.id || `${Date.now()}-${Math.random()}`,
-        name: row.name || "document.pdf",
-        path: open.path,
-        currentPage: Math.max(1, row.currentPage || 1),
-        annotationsByPage:
-          row.annotationsByPage && typeof row.annotationsByPage === "object" ? row.annotationsByPage : {},
-        viewportByPage: row.viewportByPage && typeof row.viewportByPage === "object" ? row.viewportByPage : {},
-        undoStack: Array.isArray(row.undoStack) ? row.undoStack : [],
-        redoStack: Array.isArray(row.redoStack) ? row.redoStack : []
-      });
-    }
-    if (!restored.length) return;
-    state.tabs = restored;
-    state.activeTabId = restored.some((t) => t.id === r.data.activeTabId)
-      ? r.data.activeTabId
-      : restored[0].id;
-    state.selectedAnnotationId = null;
-    state.editingAnnotationId = null;
-    renderTabs();
-    updateViewer();
-    updateWelcomeVisibility();
-    syncPropertyInputs();
-    scheduleSidebarUpdate();
-    if (r.recovered) setStatus(t("stSessionRecovered"));
-  } catch {
-    /* ignore */
-  }
-}
-
-function renderJobs(jobs) {
-  jobsPanel.innerHTML = "";
-  if (!jobs?.length) {
-    jobsPanel.textContent = t("jobsNone");
-    return;
-  }
-  jobs
-    .slice()
-    .reverse()
-    .forEach((job) => {
-      const row = document.createElement("div");
-      row.className = "job-item";
-      const out = job.result?.output_path ? ` -> ${job.result.output_path}` : "";
-      const err = job.error ? ` (${job.error})` : "";
-      const text = document.createElement("span");
-      text.textContent = `${job.type} | ${job.status} | ${job.progress}%${out}${err}`;
-      row.appendChild(text);
-      if (job.status === "queued") {
-        const cancelBtn = document.createElement("button");
-        cancelBtn.textContent = t("cancel");
-        cancelBtn.onclick = async () => {
-          await window.maniPdfApi.cancelJob(job.id);
-          await refreshJobs();
-        };
-        row.appendChild(cancelBtn);
-      }
-      if (job.status === "failed" || job.status === "cancelled") {
-        const retryBtn = document.createElement("button");
-        retryBtn.textContent = t("retry");
-        retryBtn.onclick = async () => {
-          await window.maniPdfApi.retryJob(job.id);
-          await refreshJobs();
-        };
-        row.appendChild(retryBtn);
-      }
-      jobsPanel.appendChild(row);
-    });
-}
-
-async function refreshJobs() {
-
-  const result = await window.maniPdfApi.listJobs();
-  if (result.ok) renderJobs(result.jobs);
-
-}
-
-function renderSensitiveActions(actions) {
-  sensitivePanel.innerHTML = "";
-  if (!actions?.length) {
-    sensitivePanel.textContent = t("sensitiveNone");
-    return;
-  }
-  actions
-    .slice()
-    .reverse()
-    .forEach((a) => {
-      const row = document.createElement("div");
-      row.className = "job-item";
-      row.textContent = `${a.ts} | ${a.type} | ${a.status} | ${a.inputPath || "-"} -> ${a.outputPath || "-"}${a.error ? ` (${a.error})` : ""}`;
-      sensitivePanel.appendChild(row);
-    });
-}
-
-async function refreshSensitiveActions() {
-
-  const result = await window.maniPdfApi.listSensitiveActions();
-  if (result.ok) renderSensitiveActions(result.actions);
-
-}
-
-async function refreshPythonHealth() {
-
-  const result = await window.maniPdfApi.pythonHealth();
-  if (!result.ok) {
-    setStatus(t("stPythonUnavailable"));
-    return;
-  }
-  if (result.pypdf === false) {
-    setStatus(t("stPythonMissingPypdf"));
-  }
-
 }
 
 function getActiveTab() {
@@ -1657,7 +1304,7 @@ function renderTabs() {
     node.appendChild(closeBtn);
     node.onclick = () => {
       state.activeTabId = tab.id;
-      updateViewer();
+      pdfv.updateViewer();
       renderTabs();
     };
     tabs.appendChild(node);
@@ -1690,9 +1337,9 @@ function removeTab(tabId) {
   }
 
   renderTabs();
-  updateViewer();
+  pdfv.updateViewer();
   updateWelcomeVisibility();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 
   // E7-S1: toast "PDF retiré" + Annuler (5-8s)
   pendingTabUndo = {
@@ -1717,9 +1364,9 @@ function removeTab(tabId) {
       state.editingAnnotationId = null;
 
       renderTabs();
-      updateViewer();
+      pdfv.updateViewer();
       updateWelcomeVisibility();
-      scheduleAutoSave();
+      session.scheduleAutoSave();
     },
     timeoutMs: 6500
   });
@@ -1728,217 +1375,6 @@ function removeTab(tabId) {
     if (pendingTabUndo?.toastId !== toastId) return;
     pendingTabUndo = null;
   }, 7000);
-}
-
-function updateViewer() {
-  const tab = getActiveTab();
-  if (!tab) {
-    if (pagesContainer) pagesContainer.innerHTML = "";
-    pageInfo.textContent = t("noPdf");
-    return;
-  }
-  renderPdfDocument(tab.path).catch((err) => {
-    setStatus(t("stPdfRenderError"));
-
-  });
-  pageInfo.textContent = `${t("pageWord")} ${tab.currentPage || 1}`;
-}
-
-function clampZoomScale(value) {
-  return clamp(Number(value) || 1, 0.25, 4);
-}
-
-function updateZoomUI() {
-  if (!zoomInfo) return;
-  const pct = Math.round((state.zoomScale || 1) * 100);
-  zoomInfo.textContent = `${pct}%`;
-}
-
-function setZoomScale(next, source = "ui") {
-  const prev = state.zoomScale || 1;
-  pendingZoomAnchor = captureZoomAnchor();
-  state.zoomScale = clampZoomScale(next);
-  if (prev === state.zoomScale) return;
-  updateZoomUI();
-
-  if (getActiveTab()) updateViewer();
-}
-
-function zoomByWheelDelta(deltaY) {
-  // deltaY < 0 => wheel up => zoom in
-  const direction = deltaY < 0 ? 1 : -1;
-  const step = 1.1;
-  const next = (state.zoomScale || 1) * (direction > 0 ? step : 1 / step);
-  setZoomScale(next, "ctrl+wheel");
-}
-
-function setZoomMode(mode) {
-  state.zoomMode = mode === "page-fit" ? "page-fit" : "page-width";
-  // Le viewer embarque deja un auto-fit conteneur; on garde le mode en etat
-  // pour UX sans forcer un rechargement du PDF (plus stable).
-  setStatus(state.zoomMode === "page-fit" ? t("stZoomFitPage") : t("stZoomFitWidth"));
-}
-
-function base64ToUint8Array(base64) {
-  const binary = atob(base64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-async function getPdfJs() {
-  // Chargé via pdfjs-bridge.mjs (module)
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 2500) {
-    const lib = window.pdfjsLib;
-    if (lib) return lib;
-    // petite attente pour laisser le module se charger
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error("pdfjsLib non chargé (pdfjs-bridge.mjs).");
-}
-
-const pdfRenderCache = {
-  path: null,
-  base64: null,
-  doc: null
-};
-
-async function loadPdfDocument(pdfPath) {
-  if (pdfRenderCache.path === pdfPath && pdfRenderCache.doc) return pdfRenderCache.doc;
-  const pdfjs = await getPdfJs();
-  const read = await window.maniPdfApi.readPdfBytes(pdfPath);
-  if (!read.ok) throw new Error(read.error || "Lecture PDF impossible.");
-  const data = base64ToUint8Array(read.base64);
-  const loadingTask = pdfjs.getDocument({ data, disableFontFace: true });
-  const doc = await loadingTask.promise;
-  pdfRenderCache.path = pdfPath;
-  pdfRenderCache.base64 = read.base64;
-  pdfRenderCache.doc = doc;
-  return doc;
-}
-
-function ensureOverlaysOn(pageNode) {
-  if (!pageNode) return;
-  if (!annotationLayer) {
-    annotationLayer = document.createElement("div");
-    annotationLayer.id = "annotationLayer";
-  }
-  if (!dropOverlay) {
-    dropOverlay = document.createElement("div");
-    dropOverlay.id = "dropOverlay";
-    dropOverlay.setAttribute("aria-hidden", "true");
-  }
-  pageNode.appendChild(annotationLayer);
-  pageNode.appendChild(dropOverlay);
-  attachDropOverlayListeners(dropOverlay);
-}
-
-function setActivePage(pageNumber) {
-  const tab = getActiveTab();
-  if (!tab || !pagesContainer) return;
-  tab.currentPage = pageNumber;
-  pageInfo.textContent = `${t("pageWord")} ${pageNumber}`;
-
-  pagesContainer.querySelectorAll(".pdf-page").forEach((p) => p.classList.remove("active"));
-  const active = pagesContainer.querySelector(`.pdf-page[data-page="${pageNumber}"]`);
-  if (active) active.classList.add("active");
-
-  ensureOverlaysOn(active);
-  pdfCanvas = active?.querySelector?.("canvas") || null;
-
-  if (pdfCanvas && annotationLayer) {
-    annotationLayer.style.width = `${pdfCanvas.width}px`;
-    annotationLayer.style.height = `${pdfCanvas.height}px`;
-  }
-  if (pdfCanvas && dropOverlay) {
-    dropOverlay.style.width = `${pdfCanvas.width}px`;
-    dropOverlay.style.height = `${pdfCanvas.height}px`;
-  }
-
-  enforceSafeZoneForActiveTab();
-  renderAnnotations();
-  scheduleSidebarUpdate();
-}
-
-async function renderPdfDocument(pdfPath) {
-  if (!pagesContainer) return;
-  const tab = getActiveTab();
-  if (!tab) return;
-
-  // Annuler les renders en cours (zoom/resize rapides)
-  activePdfRenderToken += 1;
-  const token = activePdfRenderToken;
-  try {
-    activePdfRenderTasks.forEach((t) => t?.cancel?.());
-  } catch {}
-  activePdfRenderTasks = [];
-
-  const doc = await loadPdfDocument(pdfPath);
-  const count = doc.numPages || 1;
-  tab.pageCount = count;
-  const containerWidth = Math.max(1, Math.floor((viewer?.clientWidth || 1) - 24));
-
-  pagesContainer.innerHTML = "";
-  // E12: progression de rendu (status bar)
-  try {
-    setStatus(tr("stRendering", { a: "0", b: String(count) }));
-  } catch {}
-  let lastProgressAt = 0;
-
-  for (let pageNumber = 1; pageNumber <= count; pageNumber += 1) {
-    if (token !== activePdfRenderToken) return;
-    // Throttle: éviter de spammer la status bar sur gros PDFs.
-    const now = Date.now();
-    if (pageNumber === 1 || pageNumber === count || now - lastProgressAt > 140) {
-      lastProgressAt = now;
-      try {
-        setStatus(tr("stRendering", { a: String(pageNumber), b: String(count) }));
-      } catch {}
-    }
-    const page = await doc.getPage(pageNumber);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const baseScale = containerWidth / baseViewport.width;
-    const scale = baseScale * (state.zoomScale || 1);
-    const viewport = page.getViewport({ scale: Number.isFinite(scale) && scale > 0 ? scale : 1 });
-
-    const pageNode = document.createElement("div");
-    pageNode.className = "pdf-page";
-    pageNode.dataset.page = String(pageNumber);
-
-    const canvas = document.createElement("canvas");
-    canvas.className = "pdf-canvas";
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    pageNode.style.width = `${canvas.width}px`;
-    pageNode.style.height = `${canvas.height}px`;
-    pageNode.appendChild(canvas);
-
-    pageNode.addEventListener("mousedown", () => setActivePage(pageNumber));
-
-    pagesContainer.appendChild(pageNode);
-
-    const ctx = canvas.getContext("2d", { alpha: false });
-    const task = page.render({ canvasContext: ctx, viewport });
-    activePdfRenderTasks.push(task);
-    try {
-      await task.promise;
-    } finally {
-      // cleanup best-effort
-      activePdfRenderTasks = activePdfRenderTasks.filter((t) => t !== task);
-    }
-  }
-
-  setActivePage(tab.currentPage || 1);
-  applyZoomAnchorIfAny();
-  scheduleSidebarUpdate();
-  if (token !== activePdfRenderToken) return;
-  try {
-    setStatus(t("stPdfLoadedHint"));
-  } catch {
-    /* ignore */
-  }
 }
 
 async function addPdfTab(filePath, fileName) {
@@ -1963,7 +1399,7 @@ async function addPdfTab(filePath, fileName) {
   state.tabs.push(tab);
   state.activeTabId = tab.id;
   renderTabs();
-  updateViewer();
+  pdfv.updateViewer();
   updateWelcomeVisibility();
   setStatus(tr("stPdfLoadedNamed", { name: fileName }));
   // E10-S1: onboarding minimal après ouverture
@@ -1989,94 +1425,6 @@ async function promptOpenPdf() {
   await addPdfTab(selected.path, name);
 }
 
-function buildDefaultOutputPath(basePath, suffix) {
-  const dot = basePath.lastIndexOf(".");
-  if (dot < 0) return `${basePath}-${suffix}.pdf`;
-  return `${basePath.slice(0, dot)}-${suffix}${basePath.slice(dot)}`;
-}
-
-/**
- * Enfile un job PDF (validation des chemins dans le main process). Affiche l'erreur utilisateur si refus.
- * @returns {Promise<boolean>} true si le job est accepté
- */
-async function enqueuePdfJob(type, payload, successStatus) {
-  const r = await window.maniPdfApi.createJob({ type, payload });
-  if (!r?.ok) {
-    const msg = typeof r?.error === "string" && r.error ? r.error : t("stJobRefused");
-    setStatus(msg);
-    return false;
-  }
-  setStatus(successStatus);
-  await refreshJobs();
-  return true;
-}
-
-async function createMergeJob() {
-
-  const pdfTabs = state.tabs.map((t) => t.path);
-  if (pdfTabs.length < 2) {
-    setStatus(t("stMergeNeedTwo"));
-    return;
-  }
-  const outputPath = buildDefaultOutputPath(pdfTabs[0], "merged");
-  await enqueuePdfJob("merge", { inputs: pdfTabs, output_path: outputPath }, t("stMergeJobAdded"));
-}
-
-function createSplitJob() {
-  sw.openSplitWorkspace();
-}
-
-async function createCompressJob() {
-
-  const tab = getActiveTab();
-  if (!tab) {
-    setStatus(t("stCompressNoPdf"));
-    return;
-  }
-  const outputPath = buildDefaultOutputPath(tab.path, "compressed");
-  await enqueuePdfJob("compress", { input_path: tab.path, output_path: outputPath }, t("stCompressJobAdded"));
-}
-
-async function createProtectJob() {
-
-  const tab = getActiveTab();
-  if (!tab) {
-    setStatus(t("stProtectNoPdf"));
-    return;
-  }
-  const password = window.prompt(t("promptProtectPassword"), "");
-  if (!password) {
-    setStatus(t("stProtectCancelled"));
-    return;
-  }
-  const outputPath = buildDefaultOutputPath(tab.path, "protected");
-  await enqueuePdfJob(
-    "protect",
-    { input_path: tab.path, output_path: outputPath, password },
-    t("stProtectJobAdded")
-  );
-}
-
-async function createUnprotectJob() {
-
-  const tab = getActiveTab();
-  if (!tab) {
-    setStatus(t("stUnprotectNoPdf"));
-    return;
-  }
-  const password = window.prompt(t("promptUnprotectPassword"), "");
-  if (password === null) {
-    setStatus(t("stUnprotectCancelled"));
-    return;
-  }
-  const outputPath = buildDefaultOutputPath(tab.path, "unprotected");
-  await enqueuePdfJob(
-    "unprotect",
-    { input_path: tab.path, output_path: outputPath, password },
-    t("stUnprotectJobAdded")
-  );
-}
-
 function currentPageAnnotations(tab) {
   const page = String(tab.currentPage || 1);
   if (!tab.annotationsByPage[page]) tab.annotationsByPage[page] = [];
@@ -2100,8 +1448,8 @@ function applySnapshot(tab, snapshot) {
 }
 
 function renderAnnotations() {
-  if (!annotationLayer) return;
-  annotationLayer.innerHTML = "";
+  if (!pdfLayerRef.annotationLayer) return;
+  pdfLayerRef.annotationLayer.innerHTML = "";
   const tab = getActiveTab();
   if (!tab) return;
   const annotations = currentPageAnnotations(tab);
@@ -2163,7 +1511,7 @@ function renderAnnotations() {
           "input",
           () => {
             syncTextFromEditor(a, ed);
-            scheduleAutoSave();
+            session.scheduleAutoSave();
             scheduleAutoGrowText(tab, a, node, "input");
           },
           { capture: true }
@@ -2174,7 +1522,7 @@ function renderAnnotations() {
             try {
               captureSnapshot(tab);
               syncTextFromEditor(a, ed);
-              scheduleAutoSave();
+              session.scheduleAutoSave();
             } catch {}
           },
           { capture: true }
@@ -2203,6 +1551,16 @@ function renderAnnotations() {
       node.ondblclick = (event) => {
         if (interactionMode && interactionMode !== "drag-pending") return;
         if (event.target.closest(".resize-handle")) return;
+        // Déjà en édition : ne pas re-render ni preventDefault — sinon le navigateur
+        // perd la sélection de mot native au double-clic (rebuild DOM + focus au début).
+        if (state.editingAnnotationId === a.id) {
+          try {
+            event.stopPropagation();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
         // CRITIQUE: évite que le listener global "clic hors zone" annule l'édition
         // dans le même cycle d'événement.
         try {
@@ -2218,7 +1576,7 @@ function renderAnnotations() {
         state.editingAnnotationId = a.id;
         renderAnnotations();
         requestAnimationFrame(() => {
-          const editNode = annotationLayer.querySelector(`[data-id="${a.id}"]`);
+          const editNode = pdfLayerRef.annotationLayer.querySelector(`[data-id="${a.id}"]`);
           const ed = getAnnotationTextEditor(editNode);
           if (ed) ed.focus();
           else editNode?.focus?.();
@@ -2290,7 +1648,7 @@ function renderAnnotations() {
           }
           renderAnnotations();
           requestAnimationFrame(() => {
-            const editNode = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
+            const editNode = pdfLayerRef.annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
             const ed2 = getAnnotationTextEditor(editNode);
             if (ed2) ed2.focus();
             else editNode?.focus?.();
@@ -2330,7 +1688,7 @@ function renderAnnotations() {
           cancelPointerInteraction();
           renderAnnotations();
           requestAnimationFrame(() => {
-            const editNode = annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
+            const editNode = pdfLayerRef.annotationLayer?.querySelector?.(`[data-id="${a.id}"]`);
             const ed2 = getAnnotationTextEditor(editNode);
             if (ed2) ed2.focus();
             else editNode?.focus?.();
@@ -2370,7 +1728,7 @@ function renderAnnotations() {
         node.appendChild(handle);
       });
     }
-    annotationLayer.appendChild(node);
+    pdfLayerRef.annotationLayer.appendChild(node);
     if (a.type === "text") {
       scheduleAutoGrowText(tab, a, node, "render");
     }
@@ -2451,7 +1809,7 @@ function startDrag(event, id) {
     suppressClickUntil = Date.now() + (hasMoved ? 180 : 0);
     activePointerCleanup = null;
     syncPropertyInputs();
-    scheduleAutoSave();
+    session.scheduleAutoSave();
   };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
@@ -2590,7 +1948,7 @@ function startResize(event, id, mode = "br") {
         /* ignore */
       }
     }
-    scheduleAutoSave();
+    session.scheduleAutoSave();
   };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
@@ -2639,7 +1997,7 @@ function addAnnotation(type, extra = {}) {
   state.selectedAnnotationId = id;
   syncPropertyInputs();
   renderAnnotations();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 }
 
 function pasteClipboardIntoActivePage() {
@@ -2668,7 +2026,7 @@ function pasteClipboardIntoActivePage() {
   state.editingAnnotationId = null;
   syncPropertyInputs();
   renderAnnotations();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 }
 
 function openShapePicker() {
@@ -2699,7 +2057,7 @@ function deleteSelected() {
   state.selectedAnnotationId = null;
   syncPropertyInputs();
   renderAnnotations();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 }
 
 function undo() {
@@ -2712,7 +2070,7 @@ function undo() {
   state.selectedAnnotationId = null;
   syncPropertyInputs();
   renderAnnotations();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 }
 
 function redo() {
@@ -2725,7 +2083,7 @@ function redo() {
   state.selectedAnnotationId = null;
   syncPropertyInputs();
   renderAnnotations();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 }
 
 function syncPropertyInputs() {
@@ -2788,10 +2146,10 @@ window.__editifySidebars.bind({
   thumbsList,
   pagesContainer,
   get annotationLayer() {
-    return annotationLayer;
+    return pdfLayerRef.annotationLayer;
   },
   getActiveTab,
-  setActivePage,
+  setActivePage: pdfv.setActivePage,
   t,
   tr,
   clamp,
@@ -2801,6 +2159,39 @@ window.__editifySidebars.bind({
   syncPropertyInputs,
   renderAnnotations
 });
+pdfv.bind({
+  state,
+  layerRef: pdfLayerRef,
+  viewer,
+  pagesContainer,
+  pageInfo,
+  zoomInfo,
+  fitWidthBtn,
+  fitPageBtn,
+  zoomOutBtn,
+  zoomInBtn,
+  getActiveTab,
+  t,
+  tr,
+  setStatus,
+  clamp,
+  enforceSafeZoneForActiveTab,
+  renderAnnotations,
+  scheduleSidebarUpdate: window.__editifySidebars.scheduleSidebarUpdate
+});
+pdfv.wireResize();
+pdfv.wireWheel();
+pdfv.wireZoomButtons();
+session.bind({
+  state,
+  setStatus,
+  t,
+  renderTabs,
+  updateViewer: pdfv.updateViewer,
+  updateWelcomeVisibility,
+  syncPropertyInputs,
+  scheduleSidebarUpdate: window.__editifySidebars.scheduleSidebarUpdate
+});
 sim.bind({
   state,
   getActiveTab,
@@ -2809,7 +2200,7 @@ sim.bind({
   cancelPointerInteraction,
   syncPropertyInputs,
   renderAnnotations,
-  scheduleAutoSave,
+  scheduleAutoSave: session.scheduleAutoSave,
   captureSnapshot,
   mergeShapeStyleFields,
   defaultShapeFillAlphaAfterClear,
@@ -2833,10 +2224,10 @@ tcm.bind({
   cancelPointerInteraction,
   syncPropertyInputs,
   renderAnnotations,
-  scheduleAutoSave,
+  scheduleAutoSave: session.scheduleAutoSave,
   captureSnapshot,
   get annotationLayer() {
-    return annotationLayer;
+    return pdfLayerRef.annotationLayer;
   },
   getAnnotationTextEditor,
   syncTextFromEditor,
@@ -2851,13 +2242,29 @@ tcm.bind({
   hideImageAnnotationCtxMenu: () => window.__editifyShapeImageCtxMenu.hideImageAnnotationCtxMenu(),
   hideChangesContextMenu
 });
+jobs.bind({
+  sessionLog,
+  tr,
+  showToastBrief: (msg) => {
+    try {
+      showToast({ message: msg, timeoutMs: 5200 });
+    } catch {
+      /* ignore */
+    }
+  },
+  t,
+  setStatus,
+  state,
+  getActiveTab,
+  openSplitWorkspace: () => sw.openSplitWorkspace()
+});
 sw.bind({
   getActiveTab,
   tr,
   t,
   setStatus,
-  enqueuePdfJob,
-  buildDefaultOutputPath,
+  enqueuePdfJob: jobs.enqueuePdfJob,
+  buildDefaultOutputPath: jobs.buildDefaultOutputPath,
   pagesContainer,
   splitWorkspaceOverlay,
   splitWorkspaceGroups,
@@ -2865,6 +2272,7 @@ sw.bind({
   splitWorkspaceAddGroupBtn,
   splitWorkspaceCloseBtn
 });
+tooltips.bind({ toolTip });
 scheduleSidebarUpdate = window.__editifySidebars.scheduleSidebarUpdate;
 renderThumbnails = window.__editifySidebars.renderThumbnails;
 renderChanges = window.__editifySidebars.renderChanges;
@@ -2880,7 +2288,7 @@ function applySelectedProperties() {
       selection &&
       !selection.isCollapsed &&
       selection.anchorNode &&
-      annotationLayer.contains(selection.anchorNode);
+      pdfLayerRef.annotationLayer.contains(selection.anchorNode);
 
     // Couleur "Txt" = couleur du texte (toujours).
     // (La couleur de fond est gérée uniquement via le champ "Fond".)
@@ -2939,7 +2347,7 @@ function applySelectedProperties() {
     }
   }
   renderAnnotations();
-  scheduleAutoSave();
+  session.scheduleAutoSave();
 }
 
 function applySelectedPropertiesLive() {
@@ -3156,7 +2564,7 @@ function pageShift(delta) {
   const next = (tab.currentPage || 1) + delta;
   const max = tab.pageCount ? Math.max(1, tab.pageCount) : next;
   tab.currentPage = clamp(next, 1, max);
-  setActivePage(tab.currentPage);
+  pdfv.setActivePage(tab.currentPage);
   const active = pagesContainer?.querySelector?.(`.pdf-page[data-page="${tab.currentPage}"]`);
   active?.scrollIntoView?.({ block: "start", inline: "nearest" });
 }
@@ -3247,6 +2655,101 @@ async function savePdfAs() {
   setStatus(exportResult?.ok ? "PDF exporté." : exportResult?.error || "Export PDF échoué.");
 }
 
+function openSessionLogModal() {
+  if (!sessionLogModal || !sessionLogBody) return;
+  sessionLogBody.innerHTML = "";
+  const rows = sessionLog.getEntries();
+  if (!rows.length) {
+    const p = document.createElement("p");
+    p.className = "session-log-empty";
+    p.textContent = t("sessionLogEmpty");
+    sessionLogBody.appendChild(p);
+  } else {
+    for (const row of rows) {
+      const line = document.createElement("div");
+      line.className = "session-log-line";
+      const time = document.createElement("span");
+      time.className = "session-log-ts";
+      time.textContent = row.ts;
+      const msg = document.createElement("span");
+      msg.className = "session-log-msg";
+      msg.textContent = `[${row.category}] ${row.message}`;
+      line.appendChild(time);
+      line.appendChild(msg);
+      sessionLogBody.appendChild(line);
+    }
+  }
+  sessionLogModal.classList.remove("hidden");
+  sessionLogModal.setAttribute("aria-hidden", "false");
+  try {
+    sessionLogCloseBtn?.focus?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function closeSessionLogModal() {
+  if (!sessionLogModal) return;
+  sessionLogModal.classList.add("hidden");
+  sessionLogModal.setAttribute("aria-hidden", "true");
+}
+
+chrome.bind({
+  blankCanvasCtxMenu,
+  aboutPopover,
+  toolbarAboutBtn,
+  toolbarOptionsBtn,
+  aboutVersion,
+  appToolbar,
+  pdfToolsBtn,
+  pdfToolsMenu,
+  toolbarFileBtn,
+  toolbarFileMenu,
+  toolbarOptionsMenu,
+  toolbarOpenPdfBtn,
+  toolbarSaveAsBtn,
+  toolbarQuitBtn,
+  toolbarCloseBtn,
+  toolbarAboutMenuItem,
+  aboutCloseBtn,
+  getActiveTab,
+  capturePointerInPage,
+  clamp,
+  hideChangesContextMenu,
+  tcm,
+  sim,
+  setStatus,
+  t,
+  promptOpenPdf,
+  savePdfAs,
+  setLanguage,
+  logText
+});
+
+toolbarSessionLogMenuItem?.addEventListener?.("click", () => {
+  chrome.closeAllFlyoutMenus();
+  openSessionLogModal();
+});
+sessionLogCloseBtn?.addEventListener?.("click", () => {
+  closeSessionLogModal();
+});
+sessionLogModal?.querySelector?.("[data-session-log-dismiss]")?.addEventListener?.("click", () => {
+  closeSessionLogModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!sessionLogModal || sessionLogModal.classList.contains("hidden")) return;
+  closeSessionLogModal();
+});
+
+window.addEventListener("beforeunload", () => {
+  try {
+    sessionLog.clear();
+  } catch {
+    /* ignore */
+  }
+});
+
 // Ouverture PDF via menu natif (File > Open PDF) et raccourci clavier (Ctrl+O).
 
 prevBtn?.addEventListener?.("click", () => pageShift(-1));
@@ -3255,15 +2758,15 @@ addTextBtn?.addEventListener?.("click", () => addAnnotation("text"));
 addShapeBtn?.addEventListener?.("click", openShapePicker);
 addImageBtn?.addEventListener?.("click", () => imageInput?.click?.());
 blankAddTextBtn?.addEventListener?.("click", () => {
-  hideBlankCanvasCtxMenu();
+  chrome.hideBlankCanvasCtxMenu();
   addAnnotation("text");
 });
 blankAddShapeBtn?.addEventListener?.("click", () => {
-  hideBlankCanvasCtxMenu();
+  chrome.hideBlankCanvasCtxMenu();
   openShapePicker();
 });
 blankAddImageBtn?.addEventListener?.("click", () => {
-  hideBlankCanvasCtxMenu();
+  chrome.hideBlankCanvasCtxMenu();
   imageInput?.click?.();
 });
 imageInput?.addEventListener?.("change", (event) => {
@@ -3312,52 +2815,25 @@ propPadding?.addEventListener?.("input", applySelectedPropertiesLive);
 propFontFamily?.addEventListener?.("change", applySelectedPropertiesLive);
 propFontSize?.addEventListener?.("input", applySelectedPropertiesLive);
 mergeBtn?.addEventListener?.("click", () => {
-  closeAllFlyoutMenus();
-  void createMergeJob();
+  chrome.closeAllFlyoutMenus();
+  void jobs.createMergeJob();
 });
 splitBtn?.addEventListener?.("click", () => {
-  closeAllFlyoutMenus();
-  createSplitJob();
-});
-toolbarAboutBtn?.addEventListener?.("click", () => {
-  if (!aboutPopover) return;
-  const isOpen = !aboutPopover.classList.contains("hidden");
-  if (isOpen) hideAboutPopover();
-  else showAboutPopover();
-});
-aboutCloseBtn?.addEventListener?.("click", () => hideAboutPopover());
-toolbarAboutMenuItem?.addEventListener?.("click", () => {
-  try {
-    closeToolbarOptionsMenu();
-  } catch {}
-  showAboutPopoverNearOptions();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if (!blankCanvasCtxMenu || blankCanvasCtxMenu.classList.contains("hidden")) return;
-  hideBlankCanvasCtxMenu();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  if (!aboutPopover || aboutPopover.classList.contains("hidden")) return;
-  hideAboutPopover();
+  chrome.closeAllFlyoutMenus();
+  jobs.createSplitJob();
 });
 compressBtn?.addEventListener?.("click", () => {
-  closeAllFlyoutMenus();
-  void createCompressJob();
+  chrome.closeAllFlyoutMenus();
+  void jobs.createCompressJob();
 });
 protectBtn?.addEventListener?.("click", () => {
-  closeAllFlyoutMenus();
-  void createProtectJob();
+  chrome.closeAllFlyoutMenus();
+  void jobs.createProtectJob();
 });
 unprotectBtn?.addEventListener?.("click", () => {
-  closeAllFlyoutMenus();
-  void createUnprotectJob();
+  chrome.closeAllFlyoutMenus();
+  void jobs.createUnprotectJob();
 });
-fitWidthBtn?.addEventListener?.("click", () => setZoomMode("page-width"));
-fitPageBtn?.addEventListener?.("click", () => setZoomMode("page-fit"));
-zoomOutBtn?.addEventListener?.("click", () => setZoomScale((state.zoomScale || 1) / 1.1, "btn-"));
-zoomInBtn?.addEventListener?.("click", () => setZoomScale((state.zoomScale || 1) * 1.1, "btn+"));
 closeShapeModalBtn?.addEventListener?.("click", closeShapePicker);
 shapeModal?.addEventListener?.("mousedown", (event) => {
   if (event.target === shapeModal) closeShapePicker();
@@ -3366,205 +2842,6 @@ shapeGrid?.addEventListener?.("click", (event) => {
   const btn = event.target.closest("button[data-shape]");
   if (!btn) return;
   addShapeByType(btn.dataset.shape);
-});
-
-// Visibilité barre HTML : visible si fenêtre en vrai plein écran (F11), sinon masquée.
-// F10 inverse l'état (XOR) : permet d'afficher la barre hors plein écran ou de la masquer dedans.
-let electronWindowFullscreen = false;
-let htmlToolbarF10Flip = false;
-
-function htmlToolbarShouldBeVisible() {
-  return electronWindowFullscreen !== htmlToolbarF10Flip;
-}
-
-function updateAppToolbarDom(_source = "unknown") {
-  if (!appToolbar) {
-    return;
-  }
-  const visible = htmlToolbarShouldBeVisible();
-  appToolbar.classList.toggle("hidden", !visible);
-  if (!visible) {
-    try {
-      closeAllFlyoutMenus();
-    } catch {}
-  }
-}
-
-function toggleHtmlToolbarF10(source) {
-  htmlToolbarF10Flip = !htmlToolbarF10Flip;
-  updateAppToolbarDom(`f10:${source}`);
-}
-
-async function syncFullscreenFromMain() {
-  try {
-    const r = await window.maniPdfApi?.getWindowFullscreen?.();
-    electronWindowFullscreen = Boolean(r?.full);
-  } catch {
-    /* ignore */
-  }
-  updateAppToolbarDom("syncFullscreenFromMain");
-}
-
-// E8: menus déroulants (Outils PDF + barre custom Fichier / Options)
-function closeToolbarFileMenu() {
-  if (!toolbarFileMenu || !toolbarFileBtn) return;
-  toolbarFileMenu.classList.add("hidden");
-  toolbarFileBtn.setAttribute("aria-expanded", "false");
-}
-function closeToolbarOptionsMenu() {
-  if (!toolbarOptionsMenu || !toolbarOptionsBtn) return;
-  toolbarOptionsMenu.classList.add("hidden");
-  toolbarOptionsBtn.setAttribute("aria-expanded", "false");
-}
-function closePdfToolsMenu() {
-  if (!pdfToolsMenu || !pdfToolsBtn) return;
-  pdfToolsMenu.classList.add("hidden");
-  pdfToolsBtn.setAttribute("aria-expanded", "false");
-}
-/** Ferme uniquement les menus déroulants Fichier / Options / Outils PDF (barre du haut). */
-function closeToolbarDropdownMenus() {
-  closePdfToolsMenu();
-  closeToolbarFileMenu();
-  closeToolbarOptionsMenu();
-}
-
-function closeAllFlyoutMenus() {
-  closeToolbarDropdownMenus();
-  hideChangesContextMenu();
-  hideBlankCanvasCtxMenu();
-  tcm.hideTextAnnotationCtxMenu();
-  sim.hideShapeAnnotationCtxMenu();
-  sim.hideImageAnnotationCtxMenu();
-}
-function togglePdfToolsMenu() {
-  if (!pdfToolsMenu || !pdfToolsBtn) return;
-  const isOpen = !pdfToolsMenu.classList.contains("hidden");
-  if (isOpen) {
-    closePdfToolsMenu();
-    return;
-  }
-  closeToolbarFileMenu();
-  closeToolbarOptionsMenu();
-  pdfToolsMenu.classList.remove("hidden");
-  pdfToolsBtn.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => {
-    try {
-      pdfToolsMenu.querySelector("button[role='menuitem']")?.focus?.();
-    } catch {}
-  });
-}
-function toggleToolbarFileMenu() {
-  if (!toolbarFileMenu || !toolbarFileBtn) return;
-  const isOpen = !toolbarFileMenu.classList.contains("hidden");
-  if (isOpen) {
-    closeToolbarFileMenu();
-    return;
-  }
-  closePdfToolsMenu();
-  closeToolbarOptionsMenu();
-  toolbarFileMenu.classList.remove("hidden");
-  toolbarFileBtn.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => {
-    try {
-      toolbarFileMenu.querySelector("button[role='menuitem']")?.focus?.();
-    } catch {}
-  });
-}
-function toggleToolbarOptionsMenu() {
-  if (!toolbarOptionsMenu || !toolbarOptionsBtn) return;
-  const isOpen = !toolbarOptionsMenu.classList.contains("hidden");
-  if (isOpen) {
-    closeToolbarOptionsMenu();
-    return;
-  }
-  closePdfToolsMenu();
-  closeToolbarFileMenu();
-  toolbarOptionsMenu.classList.remove("hidden");
-  toolbarOptionsBtn.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => {
-    try {
-      toolbarOptionsMenu.querySelector("button[role='menuitem']")?.focus?.();
-    } catch {}
-  });
-}
-async function quitApplication() {
-  try {
-    await window.maniPdfApi?.quitApp?.();
-  } catch {
-    try {
-      window.close();
-    } catch {}
-  }
-}
-pdfToolsBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  togglePdfToolsMenu();
-});
-toolbarFileBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  toggleToolbarFileMenu();
-});
-toolbarOptionsBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  toggleToolbarOptionsMenu();
-});
-toolbarOpenPdfBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  closeAllFlyoutMenus();
-  promptOpenPdf();
-});
-toolbarSaveAsBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  closeAllFlyoutMenus();
-  savePdfAs().catch(() => {});
-});
-toolbarQuitBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  closeAllFlyoutMenus();
-  quitApplication();
-});
-toolbarCloseBtn?.addEventListener?.("click", (e) => {
-  e.preventDefault();
-  closeAllFlyoutMenus();
-  quitApplication();
-});
-toolbarOptionsMenu?.addEventListener?.("click", (e) => {
-  const btn = e.target?.closest?.(".toolbar-lang-btn[data-lang]");
-  if (!btn) return;
-  try {
-    setLanguage(btn.dataset.lang);
-  } catch {}
-  closeAllFlyoutMenus();
-});
-document.addEventListener("click", (e) => {
-  const inside =
-    e.target?.closest?.("#pdfToolsMenu") ||
-    e.target?.closest?.("#pdfToolsBtn") ||
-    e.target?.closest?.("#toolbarFileMenu") ||
-    e.target?.closest?.("#toolbarFileBtn") ||
-    e.target?.closest?.("#toolbarOptionsMenu") ||
-    e.target?.closest?.("#toolbarOptionsBtn");
-  if (inside) return;
-  // Important : ne pas appeler closeAllFlyoutMenus() ici — ça fermait aussi les popups Forme/Texte/Image
-  // au simple clic dans un champ (événement click après mousedown). Les menus d’annotation sont gérés au mousedown (capture).
-  closeToolbarDropdownMenus();
-});
-pdfToolsMenu?.addEventListener?.("click", (e) => {
-  const item = e.target?.closest?.("button[role='menuitem']");
-  if (!item) return;
-  closePdfToolsMenu();
-});
-
-window.maniPdfApi?.onFullscreenChanged?.((full) => {
-  electronWindowFullscreen = Boolean(full);
-  updateAppToolbarDom("ipc:fullscreen-changed");
-});
-
-window.maniPdfApi?.onToolbarF10Toggle?.(() => {
-  toggleHtmlToolbarF10("main-before-input");
 });
 
 window.maniPdfApi?.onOpenFromMenu?.(async (filePath) => {
@@ -3582,7 +2859,7 @@ window.maniPdfApi?.onSetLanguage?.((lang) => {
 
 window.maniPdfApi?.onSaveAsRequested?.(() => savePdfAs().catch(() => {}));
 window.maniPdfApi?.onAutosaveRequested?.(() => {
-  saveSession().catch(() => {});
+  session.saveSession().catch(() => {});
 });
 
 // Quitte le mode edition texte uniquement si clic en dehors de la case texte en edition.
@@ -3601,7 +2878,7 @@ document.addEventListener("mousedown", (event) => {
     renderAnnotations();
     return;
   }
-  const editingNode = annotationLayer?.querySelector?.(`[data-id="${state.editingAnnotationId}"]`);
+  const editingNode = pdfLayerRef.annotationLayer?.querySelector?.(`[data-id="${state.editingAnnotationId}"]`);
   if (!editingNode) return;
   // IMPORTANT: si l'événement provient de l'annotation en édition (même avant rerender),
   // le composedPath contient l'ancien node avec le bon data-id. Ça évite de quitter
@@ -3632,7 +2909,7 @@ document.addEventListener("mousedown", (event) => {
         syncTextFromEditor(item, ed);
       }
     } catch {}
-    scheduleAutoSave();
+    session.scheduleAutoSave();
   }
 
   state.editingAnnotationId = null;
@@ -3653,60 +2930,19 @@ document.addEventListener("mousedown", (event) => {
   renderAnnotations();
 });
 
-function showToolTip(event) {
-  const target = event.target.closest("[data-tooltip]");
-  if (!target) return;
-  const text = target.getAttribute("data-tooltip");
-  if (!text) return;
-  if (activeTooltipTarget && activeTooltipTarget !== target) {
-    activeTooltipTarget.classList.remove("tooltip-target-active");
-  }
-  activeTooltipTarget = target;
-  activeTooltipTarget.classList.add("tooltip-target-active");
-  toolTip.textContent = text;
-  toolTip.classList.remove("hidden");
-
-  // Positionner le tooltip pour ne pas masquer l'outil:
-  // 1) sous le bouton (prioritaire)
-  // 2) au-dessus si pas assez de place
-  // 3) clamp horizontal dans la fenêtre
-  const rect = target.getBoundingClientRect();
-  const margin = 8;
-  const tipWidth = 320;
-  const tipHeight = 48;
-  const showBelow = rect.bottom + tipHeight + margin <= window.innerHeight;
-  const top = showBelow ? rect.bottom + 6 : Math.max(margin, rect.top - tipHeight - 6);
-  const left = Math.max(margin, Math.min(window.innerWidth - tipWidth - margin, rect.left));
-  toolTip.style.top = `${top}px`;
-  toolTip.style.left = `${left}px`;
-}
-
-function hideToolTip() {
-  toolTip.classList.add("hidden");
-  if (activeTooltipTarget) {
-    activeTooltipTarget.classList.remove("tooltip-target-active");
-    activeTooltipTarget = null;
-  }
-}
-
 function isTypingContext(target) {
   if (!target) return false;
   const tag = target.tagName?.toLowerCase();
   return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
 }
 
-document.addEventListener("mouseover", showToolTip);
-document.addEventListener("mouseout", (event) => {
-  if (!event.target.closest("[data-tooltip]")) return;
-  hideToolTip();
-});
 document.addEventListener(
   "keydown",
   (event) => {
   if (event.key === "F10") {
     event.preventDefault();
     event.stopPropagation();
-    toggleHtmlToolbarF10("renderer-keydown");
+    chrome.toggleHtmlToolbarF10("renderer-keydown");
     return;
   }
 
@@ -3723,7 +2959,7 @@ document.addEventListener(
       (toolbarOptionsMenu && !toolbarOptionsMenu.classList.contains("hidden"));
     if (anyFlyout) {
       event.preventDefault();
-      closeAllFlyoutMenus();
+      chrome.closeAllFlyoutMenus();
       return;
     }
   }
@@ -3737,12 +2973,12 @@ document.addEventListener(
         const id = state.editingAnnotationId;
         const annos = currentPageAnnotations(tab);
         const item = annos.find((a) => a.id === id);
-        const editingNode = annotationLayer?.querySelector?.(`[data-id="${id}"]`);
+        const editingNode = pdfLayerRef.annotationLayer?.querySelector?.(`[data-id="${id}"]`);
         const edEsc = getAnnotationTextEditor(editingNode);
         if (item && item.type === "text" && edEsc) {
           captureSnapshot(tab);
           syncTextFromEditor(item, edEsc);
-          scheduleAutoSave();
+          session.scheduleAutoSave();
         }
       } catch {}
     }
@@ -3790,7 +3026,7 @@ document.addEventListener(
       state.editingAnnotationId = null;
       syncPropertyInputs();
       renderAnnotations();
-      scheduleAutoSave();
+      session.scheduleAutoSave();
     }
     setStatus("Élément coupé");
     return;
@@ -3847,157 +3083,9 @@ document.addEventListener(
   true
 );
 
-window.addEventListener("resize", () => {
-  // En plein écran / redimensionnement, recalculer le rendu PDF pour éviter
-  // les marges “figées” (canvas basé sur l'ancienne largeur).
-  if (window.__maniPdfResizeDebounce) clearTimeout(window.__maniPdfResizeDebounce);
-  window.__maniPdfResizeDebounce = setTimeout(() => {
-    if (!getActiveTab()) return;
-    updateViewer();
-  }, 120);
-});
 window.addEventListener("blur", () => {
   if (activePointerCleanup) activePointerCleanup();
 });
-
-window.addEventListener(
-  "wheel",
-  (event) => {
-    if (!event.ctrlKey) return;
-    // Limiter au viewer pour éviter de casser le scroll ailleurs
-    const inViewer = event.target?.closest?.(".viewer");
-    if (!inViewer) return;
-    event.preventDefault();
-    zoomByWheelDelta(event.deltaY);
-  },
-  { passive: false }
-);
-
-function insertTextAtCaret(text) {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  range.deleteContents();
-  range.insertNode(document.createTextNode(text));
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  return true;
-}
-
-function trySetCaretFromPoint(container, clientX, clientY) {
-  if (!container) return false;
-  try {
-    // Standard moderne
-    if (document.caretPositionFromPoint) {
-      const pos = document.caretPositionFromPoint(clientX, clientY);
-      if (!pos) return false;
-      const range = document.createRange();
-      range.setStart(pos.offsetNode, pos.offset);
-      range.collapse(true);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      return true;
-    }
-  } catch {}
-  return false;
-}
-
-function attachDropOverlayListeners(node) {
-  if (!node || !node.addEventListener) return;
-  if (node.dataset?.dndAttached === "1") return;
-  if (!annotationLayer) return;
-  node.dataset.dndAttached = "1";
-
-  const allowDrop = (event) => {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-  };
-
-  const overlayAllow = (event) => {
-    allowDrop(event);
-    const active = Boolean(state.editingAnnotationId);
-    if (!active) return;
-  };
-
-  node.addEventListener("dragenter", overlayAllow, true);
-  node.addEventListener("dragover", overlayAllow, true);
-  node.addEventListener(
-    "drop",
-    (event) => {
-      allowDrop(event);
-      const textPlain = event.dataTransfer?.getData("text/plain") || "";
-      const text = textPlain.trim();
-
-      if (!state.editingAnnotationId) return;
-      const editingNode = annotationLayer.querySelector?.(`[data-id="${state.editingAnnotationId}"]`);
-      if (!editingNode) return;
-      editingNode.focus();
-      trySetCaretFromPoint(editingNode, event.clientX, event.clientY);
-      if (text) insertTextAtCaret(text);
-    },
-    true
-  );
-}
-
-function setupDragAndDrop() {
-  try {
-  // Important sous Electron: sans preventDefault, certains drops (fichiers)
-  // peuvent être refusés ou provoquer un comportement par défaut indésirable.
-  const allowDrop = (event) => {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-  };
-
-  let dragDepth = 0;
-
-  // IMPORTANT: on attache aussi en capture=true car certains plugins/embeds
-  // peuvent interrompre la propagation en bubbling.
-  document.addEventListener(
-    "dragenter",
-    (event) => {
-      dragDepth += 1;
-      allowDrop(event);
-      if (dragDepth === 1) {
-        document.body.classList.add("dnd-active");
-      }
-    },
-    true
-  );
-  document.addEventListener(
-    "dragover",
-    (event) => {
-      allowDrop(event);
-    },
-    true
-  );
-  document.addEventListener(
-    "dragleave",
-    (event) => {
-      event.preventDefault();
-      dragDepth = Math.max(0, dragDepth - 1);
-      if (dragDepth === 0) {
-        document.body.classList.remove("dnd-active");
-      }
-    },
-    true
-  );
-  document.addEventListener(
-    "drop",
-    (event) => {
-      allowDrop(event);
-      dragDepth = 0;
-      document.body.classList.remove("dnd-active");
-    },
-    true
-  );
-
-  // PDF rendu en canvas => plus besoin d'attacher des listeners spécifiques au viewer.
-  } catch {
-    /* ignore */
-  }
-}
 
 loadPreferredLanguage();
 try {
@@ -4042,33 +3130,45 @@ sim.wireShapeAnnotationCtxMenu();
 sim.wireImageAnnotationCtxMenu();
 try {
   window.maniPdfApi?.onPdfToolAction?.((action) => {
-    closeAllFlyoutMenus();
-    if (action === "merge") void createMergeJob();
-    else if (action === "split") createSplitJob();
-    else if (action === "compress") void createCompressJob();
-    else if (action === "protect") void createProtectJob();
-    else if (action === "unprotect") void createUnprotectJob();
+    chrome.closeAllFlyoutMenus();
+    if (action === "merge") void jobs.createMergeJob();
+    else if (action === "split") jobs.createSplitJob();
+    else if (action === "compress") void jobs.createCompressJob();
+    else if (action === "protect") void jobs.createProtectJob();
+    else if (action === "unprotect") void jobs.createUnprotectJob();
   });
 } catch {
   /* ignore */
 }
 try {
   window.maniPdfApi?.onAboutRequested?.(() => {
-    showAboutPopoverNearOptions();
+    chrome.showAboutPopoverNearOptions();
   });
 } catch {
   /* ignore */
 }
-syncFullscreenFromMain().catch(() => {});
-updateZoomUI();
+try {
+  window.maniPdfApi?.onSessionLogRequested?.(() => {
+    chrome.closeAllFlyoutMenus();
+    openSessionLogModal();
+  });
+} catch {
+  /* ignore */
+}
+chrome.syncFullscreenFromMain().catch(() => {});
+pdfv.updateZoomUI();
 updateWelcomeVisibility();
-loadSession().catch(() => {});
-refreshJobs();
-refreshSensitiveActions();
-refreshPythonHealth();
-setupDragAndDrop();
-setInterval(refreshJobs, 1000);
-setInterval(refreshSensitiveActions, 2000);
+session.loadSession().catch(() => {});
+jobs.refreshJobs();
+jobs.refreshSensitiveActions();
+jobs.refreshPythonHealth();
+pdfv.setupDragAndDrop();
+setInterval(() => {
+  void jobs.refreshJobs();
+}, 1000);
+setInterval(() => {
+  void jobs.refreshSensitiveActions();
+}, 2000);
 
 // E2E helpers (best-effort, sans dépendance au main process)
 try {
@@ -4082,7 +3182,7 @@ try {
       cancelPointerInteraction();
       if (pagesContainer) pagesContainer.innerHTML = "";
       renderTabs();
-      updateViewer();
+      pdfv.updateViewer();
       updateWelcomeVisibility();
       syncPropertyInputs();
       setStatus(t("ready"));
@@ -4147,7 +3247,7 @@ try {
         state.editingAnnotationId = null;
         syncPropertyInputs();
         renderAnnotations();
-        scheduleAutoSave();
+        session.scheduleAutoSave();
       }
       return true;
     } catch {
@@ -4216,7 +3316,7 @@ try {
       state.editingAnnotationId = null;
       syncPropertyInputs();
       renderAnnotations();
-      scheduleAutoSave();
+      session.scheduleAutoSave();
       return id;
     } catch {
       return null;
@@ -4258,7 +3358,7 @@ try {
       });
       state.selectedAnnotationId = id;
       renderAnnotations();
-      scheduleAutoSave();
+      session.scheduleAutoSave();
       return id;
     } catch {
       return null;
@@ -4289,7 +3389,7 @@ try {
       item.h = Math.max(1, Math.floor(Number(h) || 1));
       fitAnnotationToSafeZone(item, getSafeZoneSize());
       renderAnnotations();
-      scheduleAutoSave();
+      session.scheduleAutoSave();
       return true;
     } catch {
       return false;
