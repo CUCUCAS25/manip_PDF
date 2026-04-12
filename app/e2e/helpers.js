@@ -1,6 +1,6 @@
 /**
  * Attend que le nombre de nœuds .pdf-page corresponde à tab.pageCount
- * et que la barre latérale miniatures soit à jour (évite les courses avec Split, smoke, etc.).
+ * puis que les miniatures soient alignées (deux phases pour éviter les courses rendu / thumbs).
  */
 async function waitForPdfPagesRendered(page) {
   await page.waitForFunction(
@@ -8,9 +8,18 @@ async function waitForPdfPagesRendered(page) {
       const u = window.__maniE2E?.getUiState?.();
       if (!u || u.error || u.pageCount == null) return false;
       const n = document.querySelectorAll("#pagesContainer .pdf-page").length;
-      if (n !== u.pageCount || n < 1) return false;
+      return n === u.pageCount && n >= 1;
+    },
+    null,
+    { timeout: 45000 }
+  );
+  await page.waitForFunction(
+    () => {
+      const u = window.__maniE2E?.getUiState?.();
+      if (!u || u.pageCount == null) return false;
+      const n = document.querySelectorAll("#pagesContainer .pdf-page").length;
       const thumbs = document.querySelectorAll("#thumbsList .thumb-item").length;
-      return thumbs === n;
+      return n === u.pageCount && thumbs === n && n >= 1;
     },
     null,
     { timeout: 45000 }

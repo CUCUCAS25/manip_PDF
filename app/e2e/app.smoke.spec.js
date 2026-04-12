@@ -62,9 +62,14 @@ async function openPdfFromUi(app, page) {
     null,
     { timeout: 30000 }
   );
-  // E10: status d'onboarding post-ouverture (peut être rapidement remplacé)
+  // E10: statut post-chargement (libellé i18n : FR « PDF charge », EN « PDF loaded », etc.)
   await page.waitForFunction(
-    () => Array.isArray(window.__maniStatusHistory) && window.__maniStatusHistory.some((m) => String(m || "").includes("PDF chargé")),
+    () =>
+      Array.isArray(window.__maniStatusHistory) &&
+      window.__maniStatusHistory.some((m) => {
+        const s = String(m || "");
+        return /PDF\s+(charg|load|carg|carreg)/i.test(s);
+      }),
     null,
     { timeout: 30000 }
   );
@@ -158,9 +163,9 @@ test("load PDF, remove tab, add and edit text", async () => {
   await editor.click();
   await editor.fill("Bonjour");
 
-  // Sidebar "Ajouts": doit référencer la fenêtre texte (3 premiers mots)
+  // Sidebar "Ajouts": libellé type aligné sur i18n FR `annTextWin` (« Fenetre texte », sans accent)
   await expect(page.locator("#changesList .change-item")).toHaveCount(1);
-  await expect(page.locator("#changesList .change-item").first()).toContainText("Fenêtre texte");
+  await expect(page.locator("#changesList .change-item .change-type").first()).toContainText("Fenetre texte");
   await expect(page.locator("#changesList .change-item .change-summary").first()).toContainText("Bonjour");
 
   // Correcteur orthographique: activé et dépend de la langue UI (au moins via attributs DOM).

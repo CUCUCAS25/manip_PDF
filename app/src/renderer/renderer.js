@@ -1974,8 +1974,6 @@ const I18N = {
     maniColorValidate: "Valider",
     maniColorEyedropper: "Pipette",
     propMargins: "Marges",
-    propFontPlain: "Police",
-    propSizePlain: "Taille",
     closeAria: "Fermer",
     ttToolbarFile: "Fichier : ouvrir, enregistrer sous, quitter.",
     ttToolbarOpenPdf: "Ouvre un fichier PDF.",
@@ -2196,8 +2194,6 @@ const I18N = {
     maniColorValidate: "Apply",
     maniColorEyedropper: "Eyedropper",
     propMargins: "Padding",
-    propFontPlain: "Font",
-    propSizePlain: "Size",
     closeAria: "Close",
     ttToolbarFile: "File: open, save as, quit.",
     ttToolbarOpenPdf: "Open a PDF file.",
@@ -2418,8 +2414,6 @@ const I18N = {
     maniColorValidate: "Aplicar",
     maniColorEyedropper: "Cuentagotas",
     propMargins: "Margenes",
-    propFontPlain: "Fuente",
-    propSizePlain: "Tamano",
     closeAria: "Cerrar",
     ttToolbarFile: "Archivo: abrir, guardar como, salir.",
     ttToolbarOpenPdf: "Abre un archivo PDF.",
@@ -2640,8 +2634,6 @@ const I18N = {
     maniColorValidate: "Aplicar",
     maniColorEyedropper: "Conta-gotas",
     propMargins: "Margens",
-    propFontPlain: "Fonte",
-    propSizePlain: "Tamanho",
     closeAria: "Fechar",
     ttToolbarFile: "Ficheiro: abrir, guardar como, sair.",
     ttToolbarOpenPdf: "Abre um ficheiro PDF.",
@@ -3119,23 +3111,13 @@ const SHAPE_GRID_ICONS = {
   trapezoid: "⏢"
 };
 
-/** Clés I18N `shapeBtn*` pour la grille du modal formes. */
-const SHAPE_BTN_I18N_KEYS = {
-  rect: "shapeBtnRect",
-  ellipse: "shapeBtnEllipse",
-  triangle: "shapeBtnTriangle",
-  line: "shapeBtnLine",
-  diamond: "shapeBtnDiamond",
-  pentagon: "shapeBtnPentagon",
-  hexagon: "shapeBtnHexagon",
-  octagon: "shapeBtnOctagon",
-  star: "shapeBtnStar",
-  arrow: "shapeBtnArrow",
-  heart: "shapeBtnHeart",
-  cross: "shapeBtnCross",
-  parallelogram: "shapeBtnParallelogram",
-  trapezoid: "shapeBtnTrapezoid"
-};
+/** Clés I18N `shapeBtnRect`… dérivées des types (évite la duplication avec SHAPE_TYPE_KEYS). */
+const SHAPE_BTN_I18N_KEYS = Object.fromEntries(
+  Object.keys(SHAPE_TYPE_KEYS).map((k) => [
+    k,
+    `shapeBtn${k.charAt(0).toUpperCase()}${k.slice(1)}`
+  ])
+);
 
 /** data-tooltip → clé I18N `tt*`. */
 const TOOLTIP_BY_ELEMENT_ID = {
@@ -3185,6 +3167,43 @@ function applyDataTooltipsFromMap() {
     const el = document.getElementById(id);
     if (el) el.setAttribute("data-tooltip", t(i18nKey));
   }
+}
+
+/** Libellés des menus contextuels d’annotation et du menu « canvas vierge ». */
+function applyContextMenusLanguage() {
+  const setEl = (id, key) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t(key);
+  };
+  setEl("ctxTextMenuTitle", "ctxMenuText");
+  setEl("ctxShapeMenuTitle", "ctxMenuShape");
+  setEl("ctxImageMenuTitle", "ctxMenuImage");
+  setEl("blankCanvasMenuTitle", "ctxBlankTitle");
+  setEl("ctxLblTextRotation", "ctxRotationDeg");
+  setEl("ctxLblTextOpacity", "ctxOpacityPctLabel");
+  setEl("ctxLblFont", "font");
+  setEl("ctxLblSize", "size");
+  setEl("ctxLblColor", "ctxMenuColor");
+  setEl("ctxLblBg", "bg");
+  setEl("ctxLblShapeRotation", "ctxRotationDeg");
+  setEl("ctxLblShapeOpacity", "ctxOpacityPctLabel");
+  setEl("ctxLblShapeFill", "shapeFill");
+  setEl("ctxLblShapeFillOp", "shapeFillOp");
+  setEl("ctxLblShapeStroke", "shapeStroke");
+  setEl("ctxLblShapeStrokeOp", "shapeStrokeOp");
+  setEl("ctxLblShapeStrokeW", "ctxStrokeWidthPx");
+  setEl("ctxLblShapeBackdrop", "ctxShapeBackdropShort");
+  setEl("ctxLblShapeBackdropOp", "shapeBackdropOp");
+  setEl("ctxLblImageRotation", "ctxRotationDeg");
+  setEl("ctxLblImageOpacity", "ctxOpacityPctLabel");
+  const tbg = document.getElementById("ctxTextBgClear");
+  if (tbg) tbg.textContent = t("ctxTextBgClear");
+  setEl("ctxShapeFillClear", "ctxShapeFillClear");
+  setEl("ctxShapeStrokeClear", "ctxShapeStrokeClear");
+  setEl("ctxShapeBackdropClear", "ctxShapeBackdropClear");
+  if (blankAddTextBtn) blankAddTextBtn.textContent = `🔤 ${t("blankAddText")}`;
+  if (blankAddShapeBtn) blankAddShapeBtn.textContent = `🔷 ${t("blankAddShape")}`;
+  if (blankAddImageBtn) blankAddImageBtn.textContent = `🖼️ ${t("blankAddImage")}`;
 }
 
 function setLabelPrefix(inputId, value) {
@@ -3296,41 +3315,8 @@ function applyLanguage() {
   } catch {
     /* ignore */
   }
-  // Menus contextuels (texte / forme / image / canvas vierge).
   try {
-    const setEl = (id, key) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = t(key);
-    };
-    setEl("ctxTextMenuTitle", "ctxMenuText");
-    setEl("ctxShapeMenuTitle", "ctxMenuShape");
-    setEl("ctxImageMenuTitle", "ctxMenuImage");
-    setEl("blankCanvasMenuTitle", "ctxBlankTitle");
-    setEl("ctxLblTextRotation", "ctxRotationDeg");
-    setEl("ctxLblTextOpacity", "ctxOpacityPctLabel");
-    setEl("ctxLblFont", "font");
-    setEl("ctxLblSize", "size");
-    setEl("ctxLblColor", "ctxMenuColor");
-    setEl("ctxLblBg", "bg");
-    setEl("ctxLblShapeRotation", "ctxRotationDeg");
-    setEl("ctxLblShapeOpacity", "ctxOpacityPctLabel");
-    setEl("ctxLblShapeFill", "shapeFill");
-    setEl("ctxLblShapeFillOp", "shapeFillOp");
-    setEl("ctxLblShapeStroke", "shapeStroke");
-    setEl("ctxLblShapeStrokeOp", "shapeStrokeOp");
-    setEl("ctxLblShapeStrokeW", "ctxStrokeWidthPx");
-    setEl("ctxLblShapeBackdrop", "ctxShapeBackdropShort");
-    setEl("ctxLblShapeBackdropOp", "shapeBackdropOp");
-    setEl("ctxLblImageRotation", "ctxRotationDeg");
-    setEl("ctxLblImageOpacity", "ctxOpacityPctLabel");
-    const tbg = document.getElementById("ctxTextBgClear");
-    if (tbg) tbg.textContent = t("ctxTextBgClear");
-    setEl("ctxShapeFillClear", "ctxShapeFillClear");
-    setEl("ctxShapeStrokeClear", "ctxShapeStrokeClear");
-    setEl("ctxShapeBackdropClear", "ctxShapeBackdropClear");
-    if (blankAddTextBtn) blankAddTextBtn.textContent = `🔤 ${t("blankAddText")}`;
-    if (blankAddShapeBtn) blankAddShapeBtn.textContent = `🔷 ${t("blankAddShape")}`;
-    if (blankAddImageBtn) blankAddImageBtn.textContent = `🖼️ ${t("blankAddImage")}`;
+    applyContextMenusLanguage();
   } catch {
     /* ignore */
   }
@@ -6678,7 +6664,7 @@ try {
       updateViewer();
       updateWelcomeVisibility();
       syncPropertyInputs();
-      setStatus("Pret");
+      setStatus(t("ready"));
       return true;
     } catch {
       return false;
