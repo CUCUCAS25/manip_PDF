@@ -1,5 +1,5 @@
 /**
- * Toasts (E7) — racine DOM + file d’attente. Chargé avant `renderer.js` ; expose `window.__editifyToast`.
+ * Toasts (E7) - racine DOM + file d’attente. Chargé avant `renderer.js` ; expose `window.__editifyToast`.
  */
 (function () {
   "use strict";

@@ -14,7 +14,7 @@
   <body>
     <section id="welcomeScreen" class="welcome-screen">
       <div class="welcome-card">
-        <img id="welcomeLogo" class="welcome-logo" src="../../../public/miniature_no_bg.png" alt="Editify" />
+        <img id="welcomeLogo" class="welcome-logo" src="../../public/miniature_no_bg.png" alt="Editify" />
         <h2 id="welcomeTitle">Bienvenue dans Editify</h2>
         <p id="welcomeSubtitle">
           Ouvre un PDF via la barre <strong>Fichier</strong> (visible en plein écran, ou avec <strong>F10</strong>) ou le menu
@@ -70,7 +70,24 @@
         <button type="button" id="aboutCloseBtn" class="about-close" aria-label="Fermer">✕</button>
       </div>
       <div class="about-body">
-        <div><strong>Editify</strong> — <span id="aboutVersion">v1.0.0</span></div>
+        <div class="about-product-row">
+          <div><strong>Editify</strong> - <span id="aboutVersion">v1.0.0</span></div>
+          <a
+            id="aboutMindRampartLink"
+            class="about-mindrampart-link"
+            href="https://mindrampart.com/"
+            rel="noreferrer"
+            aria-label="MindRampart"
+          >
+            <img
+              class="about-mindrampart-logo"
+              src="../../public/mindrampart-logo.png"
+              alt="MindRampart"
+              width="168"
+              height="48"
+            />
+          </a>
+        </div>
         <p id="aboutCredits">
           Créé par <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>)
           et <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>)
@@ -100,7 +117,7 @@
     <header>
       <div class="header-title-row">
         <div class="app-title-left">
-          <img id="appLogo" class="app-logo" src="../../../public/miniature_no_bg.png" alt="Editify" />
+          <img id="appLogo" class="app-logo" src="../../public/miniature_no_bg.png" alt="Editify" />
           <h1 id="appTitle">Editify</h1>
         </div>
         <span id="toolbarF10Hint" class="header-f10-hint" role="note"></span>
@@ -232,7 +249,7 @@
         tabindex="-1"
       >
         <div class="split-workspace-header">
-          <h2 id="splitWorkspaceTitle">Split — répartition des pages</h2>
+          <h2 id="splitWorkspaceTitle">Split - répartition des pages</h2>
           <button type="button" id="splitWorkspaceCloseBtn" class="split-workspace-close" aria-label="Fermer">
             ✖
           </button>

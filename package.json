@@ -8,6 +8,7 @@
     "start": "npm --prefix app run start",
     "build": "npm --prefix app run build",
     "dist": "npm --prefix app run dist",
+    "dist:win": "npm --prefix app run dist:win",
     "test": "npm --prefix app run test",
     "e2e": "npm --prefix app run e2e"
   },

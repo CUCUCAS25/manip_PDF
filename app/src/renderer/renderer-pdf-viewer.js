@@ -1,6 +1,6 @@
 /**
  * Visionneuse PDF (pdf.js), zoom, calques page, DnD overlay.
- * `window.__editifyPdfViewer` — `bind()` depuis `renderer.js` juste après `__editifySidebars.bind()`, avant `session.bind()`.
+ * `window.__editifyPdfViewer` - `bind()` depuis `renderer.js` juste après `__editifySidebars.bind()`, avant `session.bind()`.
  */
 (function () {
   "use strict";

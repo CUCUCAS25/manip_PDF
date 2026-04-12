@@ -1,6 +1,6 @@
 /**
  * Application des libellés i18n au DOM (tooltips, menus, aria).
- * `window.__editifyI18nApply` — `bind()` depuis `renderer.js` avec `t` / refs DOM / `pdfv` (après `chrome.bind()`).
+ * `window.__editifyI18nApply` - `bind()` depuis `renderer.js` avec `t` / refs DOM / `pdfv` (après `chrome.bind()`).
  */
 (function () {
   "use strict";

@@ -19,6 +19,36 @@ try {
 let mainWindow = null;
 let autosaveInterval = null;
 let pythonProcess = null;
+
+/**
+ * Racine du dossier applicatif (dev: `app/`, prod: `resources/app.asar.unpacked/`).
+ * Les modules Python sont décompressés hors ASAR pour permettre `spawn`.
+ */
+function getApplicationRoot() {
+  if (!app.isPackaged) {
+    return path.join(__dirname, "..", "..");
+  }
+  return path.join(process.resourcesPath, "app.asar.unpacked");
+}
+
+/**
+ * Lance le service PDF : Python système en dev, runtime embarqué Windows (`python-runtime`) en prod si présent.
+ */
+function getPythonLaunchConfig() {
+  const appRoot = getApplicationRoot();
+  const pyDir = path.join(appRoot, "python");
+  const scriptPath = path.join(pyDir, "pdf_service.py");
+  const cwd = pyDir;
+  const env = { ...process.env, PYTHONUNBUFFERED: "1" };
+  if (app.isPackaged && process.platform === "win32") {
+    const embedded = path.join(process.resourcesPath, "python-runtime", "python.exe");
+    if (fs.existsSync(embedded)) {
+      return { command: embedded, args: [scriptPath], cwd, env };
+    }
+  }
+  const command = process.platform === "win32" ? "python" : "python3";
+  return { command, args: [scriptPath], cwd, env };
+}
 const sessionStatePath = path.join(app.getPath("userData"), "session-state.json");
 const sensitiveLogPath = path.join(app.getPath("userData"), "sensitive-actions.json");
 const jobsStatePath = path.join(app.getPath("userData"), "jobs-state.json");
@@ -357,8 +387,12 @@ function startAutosave() {
 }
 
 function startPythonService() {
-  const scriptPath = path.join(__dirname, "..", "..", "python", "pdf_service.py");
-  pythonProcess = spawn("python", [scriptPath], { stdio: ["ignore", "pipe", "pipe"] });
+  const { command, args, cwd, env } = getPythonLaunchConfig();
+  pythonProcess = spawn(command, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    cwd,
+    env
+  });
   pythonProcess.stdout.on("data", () => {});
   pythonProcess.stderr.on("data", (chunk) => {
     try {

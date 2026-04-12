@@ -1,7 +1,7 @@
-﻿/**
+/**
  * Dictionnaires i18n (données uniquement, sans logique UI).
  * Chargé avant renderer.js via index.html.
- * @see renderer.js — t(), tr(), applyLanguage()
+ * @see renderer.js - t(), tr(), applyLanguage()
  */
 window.__EDITIFY_I18N = {
   fr: {
@@ -30,10 +30,10 @@ window.__EDITIFY_I18N = {
     sessionLogHint:
       "Historique en mémoire (jobs, actions sensibles). Vidé automatiquement après une fermeture normale (✕).",
     sessionLogEmpty: "(Aucune entrée pour cette session.)",
-    logJobNew: "Nouveau job : {{type}} — {{status}} ({{progress}}%)",
+    logJobNew: "Nouveau job : {{type}} - {{status}} ({{progress}}%)",
     logJobStatusChange: "Job {{type}} : {{prev}} → {{status}} ({{progress}}%)",
     logJobCompleted: "Job terminé : {{type}}",
-    logJobFailed: "Job en échec : {{type}} — {{error}}",
+    logJobFailed: "Job en échec : {{type}} - {{error}}",
     logJobCancelled: "Job annulé : {{type}}",
     logSensitiveEntry: "Action sensible | {{type}} | {{status}} | {{path}}",
     openPdf: "📂 Ouvrir PDF",
@@ -50,7 +50,7 @@ window.__EDITIFY_I18N = {
     aboutTitle: "À propos",
     aboutCreditsHtml:
       'Créé par <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) et <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) dans le cadre du stage de Rafael.',
-    rgpdHtml: "<strong>RGPD</strong> : l’application est <strong>100% locale</strong> — aucune donnée ne quitte le poste de l’utilisateur (pas d’envoi vers un serveur).",
+    rgpdHtml: "<strong>RGPD</strong> : l’application est <strong>100% locale</strong> - aucune donnée ne quitte le poste de l’utilisateur (pas d’envoi vers un serveur).",
     prevPage: "◀ Page -",
     nextPage: "Page + ▶",
     cancel: "Annuler",
@@ -112,7 +112,7 @@ window.__EDITIFY_I18N = {
     imageAdded: "Image ajoutee",
     imageNamed: "Image: {{name}}",
     shapeSummaryPrefix: "Forme: {{label}}",
-    splitWorkspaceTitle: "Split — repartition des pages",
+    splitWorkspaceTitle: "Split - repartition des pages",
     splitWorkspaceHint:
       "Miniatures par page. Glissez entre les groupes (Shift / Ctrl pour la selection). Valider pour creer un PDF par groupe. Brouillon enregistre automatiquement.",
     splitAddGroup: "+ Groupe",
@@ -187,9 +187,9 @@ window.__EDITIFY_I18N = {
     stZoomFitPage: "Affichage ajuste a la page",
     stZoomFitWidth: "Affichage ajuste a la largeur",
     stRendering: "Rendu pages {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF charge — Cliquez sur + Texte pour annoter",
+    stPdfLoadedHint: "PDF charge - Cliquez sur + Texte pour annoter",
     stPdfLoadedNamed: "PDF charge : {{name}}",
-    stPdfLoadedHint2: "PDF charge — Cliquez sur + Texte pour annoter",
+    stPdfLoadedHint2: "PDF charge - Cliquez sur + Texte pour annoter",
     stSelectionCancelled: "Selection annulee.",
     stSplitNoPdf: "Split : aucun PDF actif.",
     stSplitNotReady: "Split : document non pret.",
@@ -245,10 +245,10 @@ window.__EDITIFY_I18N = {
     sessionLogHint:
       "In-memory history (jobs, sensitive actions). Cleared automatically after a normal application exit.",
     sessionLogEmpty: "(No entries this session.)",
-    logJobNew: "New job: {{type}} — {{status}} ({{progress}}%)",
+    logJobNew: "New job: {{type}} - {{status}} ({{progress}}%)",
     logJobStatusChange: "Job {{type}}: {{prev}} → {{status}} ({{progress}}%)",
     logJobCompleted: "Completed: {{type}}",
-    logJobFailed: "Failed: {{type}} — {{error}}",
+    logJobFailed: "Failed: {{type}} - {{error}}",
     logJobCancelled: "Cancelled: {{type}}",
     logSensitiveEntry: "Sensitive action | {{type}} | {{status}} | {{path}}",
     openPdf: "📂 Open PDF",
@@ -265,7 +265,7 @@ window.__EDITIFY_I18N = {
     aboutTitle: "About",
     aboutCreditsHtml:
       'Created by <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) and <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) as part of Rafael’s internship.',
-    rgpdHtml: "<strong>GDPR</strong>: the app is <strong>100% local</strong> — no data leaves the user's device (no server upload).",
+    rgpdHtml: "<strong>GDPR</strong>: the app is <strong>100% local</strong> - no data leaves the user's device (no server upload).",
     prevPage: "◀ Page -",
     nextPage: "Page + ▶",
     cancel: "Cancel",
@@ -344,7 +344,7 @@ window.__EDITIFY_I18N = {
     imageAdded: "Image added",
     imageNamed: "Image: {{name}}",
     shapeSummaryPrefix: "Shape: {{label}}",
-    splitWorkspaceTitle: "Split — page groups",
+    splitWorkspaceTitle: "Split - page groups",
     splitWorkspaceHint:
       "Thumbnails per page. Drag between groups (Shift / Ctrl to select). Validate to create one PDF per group. Draft saved automatically.",
     splitAddGroup: "+ Group",
@@ -419,9 +419,9 @@ window.__EDITIFY_I18N = {
     stZoomFitPage: "View fitted to page",
     stZoomFitWidth: "View fitted to width",
     stRendering: "Rendering pages {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF loaded — click + Text to annotate",
+    stPdfLoadedHint: "PDF loaded - click + Text to annotate",
     stPdfLoadedNamed: "PDF loaded: {{name}}",
-    stPdfLoadedHint2: "PDF loaded — click + Text to annotate",
+    stPdfLoadedHint2: "PDF loaded - click + Text to annotate",
     stSelectionCancelled: "Selection cancelled.",
     stSplitNoPdf: "Split: no active PDF.",
     stSplitNotReady: "Split: document not ready.",
@@ -477,10 +477,10 @@ window.__EDITIFY_I18N = {
     sessionLogHint:
       "Historial en memoria (trabajos, acciones sensibles). Se vacía al cerrar la aplicación con normalidad.",
     sessionLogEmpty: "(Sin entradas en esta sesión.)",
-    logJobNew: "Nuevo trabajo: {{type}} — {{status}} ({{progress}}%)",
+    logJobNew: "Nuevo trabajo: {{type}} - {{status}} ({{progress}}%)",
     logJobStatusChange: "Trabajo {{type}}: {{prev}} → {{status}} ({{progress}}%)",
     logJobCompleted: "Trabajo terminado: {{type}}",
-    logJobFailed: "Trabajo fallido: {{type}} — {{error}}",
+    logJobFailed: "Trabajo fallido: {{type}} - {{error}}",
     logJobCancelled: "Trabajo cancelado: {{type}}",
     logSensitiveEntry: "Acción sensible | {{type}} | {{status}} | {{path}}",
     openPdf: "📂 Abrir PDF",
@@ -497,7 +497,7 @@ window.__EDITIFY_I18N = {
     aboutTitle: "Acerca de",
     aboutCreditsHtml:
       'Creado por <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) y <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) en el marco de la práctica de Rafael.',
-    rgpdHtml: "<strong>RGPD</strong>: la aplicación es <strong>100% local</strong> — ningún dato sale del dispositivo del usuario (sin envío a un servidor).",
+    rgpdHtml: "<strong>RGPD</strong>: la aplicación es <strong>100% local</strong> - ningún dato sale del dispositivo del usuario (sin envío a un servidor).",
     prevPage: "◀ Página -",
     nextPage: "Página + ▶",
     cancel: "Cancelar",
@@ -576,7 +576,7 @@ window.__EDITIFY_I18N = {
     imageAdded: "Imagen anadida",
     imageNamed: "Imagen: {{name}}",
     shapeSummaryPrefix: "Forma: {{label}}",
-    splitWorkspaceTitle: "Split — grupos de paginas",
+    splitWorkspaceTitle: "Split - grupos de paginas",
     splitWorkspaceHint:
       "Miniaturas por pagina. Arrastre entre grupos (Mayus / Ctrl para seleccion). Validar para crear un PDF por grupo. Borrador guardado automaticamente.",
     splitAddGroup: "+ Grupo",
@@ -651,9 +651,9 @@ window.__EDITIFY_I18N = {
     stZoomFitPage: "Vista ajustada a la pagina",
     stZoomFitWidth: "Vista ajustada al ancho",
     stRendering: "Renderizando paginas {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF cargado — pulse + Texto para anotar",
+    stPdfLoadedHint: "PDF cargado - pulse + Texto para anotar",
     stPdfLoadedNamed: "PDF cargado: {{name}}",
-    stPdfLoadedHint2: "PDF cargado — pulse + Texto para anotar",
+    stPdfLoadedHint2: "PDF cargado - pulse + Texto para anotar",
     stSelectionCancelled: "Seleccion cancelada.",
     stSplitNoPdf: "Split: ningun PDF activo.",
     stSplitNotReady: "Split: documento no listo.",
@@ -709,10 +709,10 @@ window.__EDITIFY_I18N = {
     sessionLogHint:
       "Histórico em memória (jobs, ações sensíveis). Limpo no encerramento normal da aplicação.",
     sessionLogEmpty: "(Sem entradas nesta sessão.)",
-    logJobNew: "Novo job: {{type}} — {{status}} ({{progress}}%)",
+    logJobNew: "Novo job: {{type}} - {{status}} ({{progress}}%)",
     logJobStatusChange: "Job {{type}}: {{prev}} → {{status}} ({{progress}}%)",
     logJobCompleted: "Concluído: {{type}}",
-    logJobFailed: "Falhou: {{type}} — {{error}}",
+    logJobFailed: "Falhou: {{type}} - {{error}}",
     logJobCancelled: "Cancelado: {{type}}",
     logSensitiveEntry: "Ação sensível | {{type}} | {{status}} | {{path}}",
     openPdf: "📂 Abrir PDF",
@@ -729,7 +729,7 @@ window.__EDITIFY_I18N = {
     aboutTitle: "Sobre",
     aboutCreditsHtml:
       'Criado por <strong>Rafael VALENTE ABRANTES</strong> (<a href="https://www.linkedin.com/in/rafael-v-7845423ba/" rel="noreferrer">LinkedIn</a>) e <strong>Matthias DE FORNI</strong> (<a href="https://www.linkedin.com/in/matthias-de-forni-a5450931/" rel="noreferrer">LinkedIn</a>) no âmbito do estágio do Rafael.',
-    rgpdHtml: "<strong>RGPD</strong>: o aplicativo é <strong>100% local</strong> — nenhum dado sai do computador do usuário (sem envio para servidor).",
+    rgpdHtml: "<strong>RGPD</strong>: o aplicativo é <strong>100% local</strong> - nenhum dado sai do computador do usuário (sem envio para servidor).",
     prevPage: "◀ Página -",
     nextPage: "Página + ▶",
     cancel: "Cancelar",
@@ -808,7 +808,7 @@ window.__EDITIFY_I18N = {
     imageAdded: "Imagem adicionada",
     imageNamed: "Imagem: {{name}}",
     shapeSummaryPrefix: "Forma: {{label}}",
-    splitWorkspaceTitle: "Split — grupos de paginas",
+    splitWorkspaceTitle: "Split - grupos de paginas",
     splitWorkspaceHint:
       "Miniaturas por pagina. Arraste entre grupos (Shift / Ctrl para selecionar). Validar para criar um PDF por grupo. Rascunho guardado automaticamente.",
     splitAddGroup: "+ Grupo",
@@ -883,9 +883,9 @@ window.__EDITIFY_I18N = {
     stZoomFitPage: "Vista ajustada a pagina",
     stZoomFitWidth: "Vista ajustada a largura",
     stRendering: "A renderizar paginas {{a}}/{{b}}…",
-    stPdfLoadedHint: "PDF carregado — clique + Texto para anotar",
+    stPdfLoadedHint: "PDF carregado - clique + Texto para anotar",
     stPdfLoadedNamed: "PDF carregado: {{name}}",
-    stPdfLoadedHint2: "PDF carregado — clique + Texto para anotar",
+    stPdfLoadedHint2: "PDF carregado - clique + Texto para anotar",
     stSelectionCancelled: "Selecao cancelada.",
     stSplitNoPdf: "Split: nenhum PDF ativo.",
     stSplitNotReady: "Split: documento nao pronto.",

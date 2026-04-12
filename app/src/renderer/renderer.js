@@ -1,5 +1,5 @@
 /**
- * Renderer principal — Editify (Electron, pas Node).
+ * Renderer principal - Editify (Electron, pas Node).
  *
  * Architecture:
  * - Un fichier par rôle historique: état UI (`state`), rendu PDF (pdf.js via bridge), calque d'annotations HTML,
@@ -262,7 +262,7 @@ let lastTextMouseDownId = null;
 const lastAutoGrowHeightById = new Map();
 let measureTextNode = null;
 
-// Sidebars : `scheduleSidebarUpdate` / `renderThumbnails` / `renderChanges` — `renderer-sidebars.js` + `bind()` fin de fichier.
+// Sidebars : `scheduleSidebarUpdate` / `renderThumbnails` / `renderChanges` - `renderer-sidebars.js` + `bind()` fin de fichier.
 
 function annotationTypeLabel(a) {
   if (!a) return t("annElem");
@@ -431,9 +431,9 @@ function hideChangesContextMenu() {
   } catch {}
 }
 
-// Menu contextuel (fenêtre texte) : renderer-text-ctx-menu.js — `tcm`, `tcm.bind()` après `syncPropertyInputs`.
+// Menu contextuel (fenêtre texte) : renderer-text-ctx-menu.js - `tcm`, `tcm.bind()` après `syncPropertyInputs`.
 
-// Menus contextuels forme + image : `renderer-shape-image-ctx-menu.js` — `sim`, `sim.bind()` avant `tcm.bind()`.
+// Menus contextuels forme + image : `renderer-shape-image-ctx-menu.js` - `sim`, `sim.bind()` avant `tcm.bind()`.
 
 function ensureMeasureTextNode() {
   if (measureTextNode) return measureTextNode;
@@ -551,7 +551,7 @@ function scheduleAutoGrowText(tab, item, node, source = "render") {
 
 /**
  * Dictionnaires i18n : données dans renderer-i18n-data.js (chargé avant ce script).
- * Ancien emplacement : bloc const I18N = { ... } ici — supprimé après extraction (git pour historique).
+ * Ancien emplacement : bloc const I18N = { ... } ici - supprimé après extraction (git pour historique).
  */
 const I18N = window.__EDITIFY_I18N;
 if (!I18N || typeof I18N !== "object") {
@@ -650,7 +650,7 @@ function hexToRgba(hex, alpha01) {
 }
 
 /**
- * Rendu forme en SVG (contour suivant la géométrie réelle, comme le PDF — plus de clip-path qui masque le border).
+ * Rendu forme en SVG (contour suivant la géométrie réelle, comme le PDF - plus de clip-path qui masque le border).
  */
 function renderShapeVectorDOM(host, a) {
   host.replaceChildren();
@@ -1246,7 +1246,7 @@ function renderAnnotations() {
       node.ondblclick = (event) => {
         if (interactionMode && interactionMode !== "drag-pending") return;
         if (event.target.closest(".resize-handle")) return;
-        // Déjà en édition : ne pas re-render ni preventDefault — sinon le navigateur
+        // Déjà en édition : ne pas re-render ni preventDefault - sinon le navigateur
         // perd la sélection de mot native au double-clic (rebuild DOM + focus au début).
         if (state.editingAnnotationId === a.id) {
           try {

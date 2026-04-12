@@ -1,6 +1,6 @@
 /**
  * File d'attente IPC (`maniPdfApi`), suivi jobs / actions sensibles (journal session + toasts).
- * `window.__editifyJobs` — `bind()` depuis `renderer.js` après `getActiveTab` / `setStatus`, avant `__editifySplitWorkspace.bind()`
+ * `window.__editifyJobs` - `bind()` depuis `renderer.js` après `getActiveTab` / `setStatus`, avant `__editifySplitWorkspace.bind()`
  */
 (function () {
   "use strict";

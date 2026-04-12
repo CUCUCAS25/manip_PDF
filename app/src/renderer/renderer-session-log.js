@@ -1,6 +1,6 @@
 /**
  * Journal RAM de session (jobs / actions sensibles / infos). Purge explicite à la fermeture
- * normale (beforeunload) — pas de persistance disque.
+ * normale (beforeunload) - pas de persistance disque.
  * Dépend de `../lib/session-log-store.js` (chargé avant ce script).
  * `window.__editifySessionLog`
  */

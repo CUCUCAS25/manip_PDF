@@ -124,7 +124,7 @@ test("05-Dev: PDF ouvert + changement langue → colonnes Miniatures/Ajouts (non
   await app.close();
 });
 
-test("05-Dev: menu orthographe ctx — titre présent après langue ES", async () => {
+test("05-Dev: menu orthographe ctx - titre présent après langue ES", async () => {
   const { app, page } = await launchAppWithPdfFixture();
   await page.evaluate(() => window.__maniE2E.setLanguage("es"));
   await expect(page.locator("#ctxSpellTitleEl")).toHaveText("Ortografia");

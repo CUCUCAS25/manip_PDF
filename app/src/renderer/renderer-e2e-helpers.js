@@ -1,6 +1,6 @@
 /**
- * Hooks Playwright / diagnostic (`window.__maniE2E`) — pas d’IPC main.
- * `window.__editifyE2eHelpers` — `bind()` depuis la fin de `renderer.js` une fois l’état et les handlers définis.
+ * Hooks Playwright / diagnostic (`window.__maniE2E`) - pas d’IPC main.
+ * `window.__editifyE2eHelpers` - `bind()` depuis la fin de `renderer.js` une fois l’état et les handlers définis.
  */
 (function () {
   "use strict";

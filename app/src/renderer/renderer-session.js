@@ -1,6 +1,6 @@
 /**
  * Persistance session (onglets, annotations) via IPC `maniPdfApi.saveSession` / `loadSession`.
- * `window.__editifySession` — `bind()` depuis `renderer.js` juste après `__editifySidebars.bind()`.
+ * `window.__editifySession` - `bind()` depuis `renderer.js` juste après `__editifySidebars.bind()`.
  */
 (function () {
   "use strict";

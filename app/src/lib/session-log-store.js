@@ -1,5 +1,5 @@
 /**
- * Journal RAM de session — logique pure (Node + renderer via script global).
+ * Journal RAM de session - logique pure (Node + renderer via script global).
  * @param {{ maxEntries?: number }} [options]
  */
 (function (root, factory) {

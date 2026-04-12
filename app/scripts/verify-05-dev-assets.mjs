@@ -100,4 +100,4 @@ for (const lang of ["fr:", "en:", "es:", "pt:"]) {
   }
 }
 
-console.log("[verify-05-dev-assets] OK — ordre scripts + dictionnaires i18n.");
+console.log("[verify-05-dev-assets] OK - ordre scripts + dictionnaires i18n.");

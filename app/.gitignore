@@ -1,1 +1,3 @@
 coverage/
+bundle-python/win/*
+!bundle-python/win/.gitkeep

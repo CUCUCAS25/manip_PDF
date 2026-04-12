@@ -20,7 +20,9 @@
     "e2e": "playwright test",
     "test:all": "npm run test:verify-assets && npm run format:check && npm run lint && npm run test:coverage && npm run test:audit && npm test && npm run test:spell && npm run e2e",
     "build": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "bundle:python-win": "powershell -ExecutionPolicy Bypass -File scripts/bundle-python-embed-win.ps1",
+    "dist:win": "npm run bundle:python-win && electron-builder --win && node scripts/copy-installer-to-root.mjs"
   },
   "c8": {
     "all": true,
@@ -48,18 +50,41 @@
   "build": {
     "appId": "com.manipdf.local",
     "productName": "Editify",
+    "asar": true,
+    "asarUnpack": ["python/**/*"],
     "files": [
       "src/**/*",
       "python/**/*",
+      "public/**/*",
       "package.json"
     ],
     "directories": {
       "buildResources": "build-resources"
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "signAndEditExecutable": false,
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": false,
+      "extraResources": [
+        {
+          "from": "bundle-python/win",
+          "to": "python-runtime",
+          "filter": ["**/*"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "perMachine": false,
+      "runAfterFinish": true
     },
     "linux": {
       "target": "AppImage"

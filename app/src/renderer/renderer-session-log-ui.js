@@ -1,6 +1,6 @@
 /**
  * Modal « Journal de session », raccourcis clavier / menu barre d’outils, purge `beforeunload`.
- * `window.__editifySessionLogUi` — `bind()` depuis `renderer.js` une fois `t` / `sessionLog` / `chrome` disponibles.
+ * `window.__editifySessionLogUi` - `bind()` depuis `renderer.js` une fois `t` / `sessionLog` / `chrome` disponibles.
  */
 (function () {
   "use strict";

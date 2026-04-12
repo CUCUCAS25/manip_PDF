@@ -1,6 +1,6 @@
 /**
- * Infobulles `[data-tooltip]` (survol) — positionnement et état actif sur la cible.
- * `window.__editifyTooltips` — `bind({ toolTip })` depuis `renderer.js` après référence DOM `#toolTip`.
+ * Infobulles `[data-tooltip]` (survol) - positionnement et état actif sur la cible.
+ * `window.__editifyTooltips` - `bind({ toolTip })` depuis `renderer.js` après référence DOM `#toolTip`.
  */
 (function () {
   "use strict";

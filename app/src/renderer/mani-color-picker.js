@@ -234,7 +234,7 @@
           }
         }
       } else {
-        console.error("[mani-color] maniAfterColorCommit absent — fallback boutons Valider");
+        console.error("[mani-color] maniAfterColorCommit absent - fallback boutons Valider");
         try {
           const id = inp.id || "";
           const map = {
@@ -366,7 +366,7 @@
 
     els.eyedropperBtn?.addEventListener("click", async () => {
       try {
-        // @ts-ignore — API EyeDropper (Chromium)
+        // @ts-ignore - API EyeDropper (Chromium)
         const ed = window.EyeDropper && new window.EyeDropper();
         if (!ed) return;
         const res = await ed.open();
