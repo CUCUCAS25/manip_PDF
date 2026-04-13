@@ -3,7 +3,7 @@
 ## Installation (Windows — 30 secondes)
 
 👉 Télécharger l’application :
-https://github.com/Matth031/EditraDoc/releases/latest/download/EditraDoc-Setup.exe
+https://github.com/CUCUCAS25/EditraDoc/releases/latest/download/EditraDoc-Setup.exe
 
 Puis :
 
