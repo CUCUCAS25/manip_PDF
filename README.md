@@ -1,6 +1,37 @@
-# EditraDoc
+# 🚀 EditraDoc
 
-Application de bureau **local-first** pour manipuler des fichiers PDF **sans jamais les envoyer sur un service externe**.
+## Installation (Windows — 30 secondes)
+
+👉 Télécharger l’application :
+https://github.com/Matth031/EditraDoc/releases/latest/download/EditraDoc-Setup.exe
+
+Puis :
+
+* Double-cliquer sur le fichier téléchargé
+* Suivre les étapes d’installation
+
+✅ Aucun prérequis technique
+✅ Pas besoin d’installer Node.js ou Python
+
+---
+
+## Ce que fait EditraDoc
+
+- Ouvrir un PDF et naviguer page par page
+- Ajouter du texte, des formes et des images
+- Enregistrer une nouvelle version du PDF
+- Fusionner, diviser, compresser, protéger/déprotéger (outils PDF intégrés)
+
+## Confidentialité (en pratique)
+
+- Les fichiers sont traités sur la machine.
+- L’application n’impose pas l’envoi du document vers un service en ligne.
+
+Pour les détails techniques, la sécurité, les tests et l’architecture: voir la section développeur ci-dessous.
+
+---
+
+## 🛠️ Documentation développeur (utilisateurs avancés uniquement)
 
 ---
 
@@ -246,7 +277,6 @@ Les autres plateformes (`npm run dist` : AppImage, dmg, etc.) s’appuient pour 
 | Bundle Python Windows seul | `app/` | `npm run bundle:python-win` |
 
 ---
-
 
 ## Contribution
 

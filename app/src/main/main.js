@@ -53,9 +53,63 @@ function getPythonLaunchConfig() {
 const sessionStatePath = path.join(app.getPath("userData"), "session-state.json");
 const sensitiveLogPath = path.join(app.getPath("userData"), "sensitive-actions.json");
 const jobsStatePath = path.join(app.getPath("userData"), "jobs-state.json");
+const recentPdfsPath = path.join(app.getPath("userData"), "recent-pdfs.json");
 const jobs = [];
 let activeJobId = null;
 let sensitiveActions = [];
+/** @type {string[]} */
+let recentPdfs = [];
+
+function loadRecentPdfs() {
+  try {
+    if (!fs.existsSync(recentPdfsPath)) {
+      recentPdfs = [];
+      return;
+    }
+    const parsed = JSON.parse(fs.readFileSync(recentPdfsPath, "utf8"));
+    recentPdfs = Array.isArray(parsed) ? parsed.map((x) => String(x || "")).filter(Boolean) : [];
+  } catch {
+    recentPdfs = [];
+  }
+}
+
+function persistRecentPdfs() {
+  try {
+    fs.writeFileSync(recentPdfsPath, JSON.stringify(recentPdfs, null, 2), "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
+function addRecentPdf(pdfPath) {
+  try {
+    const p = String(pdfPath || "").trim();
+    if (!p) return;
+    // Dedupe (case-insensitive sur Windows), cap à 20.
+    const lower = process.platform === "win32" ? p.toLowerCase() : p;
+    recentPdfs = recentPdfs.filter((x) => {
+      const xl = process.platform === "win32" ? String(x).toLowerCase() : String(x);
+      return xl !== lower;
+    });
+    recentPdfs.unshift(p);
+    recentPdfs = recentPdfs.slice(0, 20);
+    persistRecentPdfs();
+    try {
+      // Bonus Windows: alimente aussi la liste de documents récents OS.
+      app.addRecentDocument(p);
+    } catch {
+      /* ignore */
+    }
+    // Rafraîchir le menu pour afficher la nouvelle liste.
+    try {
+      createMenu();
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 function loadSensitiveLog() {
   try {
@@ -262,6 +316,43 @@ function normalizeSpellcheckLanguage(lang) {
 }
 
 function createMenu() {
+  const recentSubmenu =
+    recentPdfs.length > 0
+      ? [
+          ...recentPdfs.map((p, idx) => ({
+            label: `${idx + 1}. ${p}`,
+            click: () => {
+              try {
+                if (!mainWindow) return;
+                if (!fs.existsSync(p)) {
+                  // Nettoyage best-effort des chemins disparus.
+                  recentPdfs = recentPdfs.filter((x) => x !== p);
+                  persistRecentPdfs();
+                  createMenu();
+                  return;
+                }
+                mainWindow.webContents.send("pdf:open-from-menu", p);
+              } catch {
+                /* ignore */
+              }
+            }
+          })),
+          { type: "separator" },
+          {
+            label: "Effacer la liste",
+            click: () => {
+              recentPdfs = [];
+              persistRecentPdfs();
+              try {
+                createMenu();
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        ]
+      : [{ label: "(Aucun fichier récent)", enabled: false }];
+
   const template = [
     {
       label: "Fichier",
@@ -278,6 +369,10 @@ function createMenu() {
               mainWindow.webContents.send("pdf:open-from-menu", result.filePaths[0]);
             }
           }
+        },
+        {
+          label: "Fichiers récents",
+          submenu: recentSubmenu
         },
         {
           label: "Enregistrer sous…",
@@ -580,6 +675,7 @@ ipcMain.handle("pdf:open", async (_, pdfPath) => {
     if (!validation.ok) {
       return validation;
     }
+    addRecentPdf(pdfPath);
     return { ok: true, path: pdfPath };
   } catch (error) {
     return { ok: false, error: `Impossible d'ouvrir le PDF: ${error.message}` };
@@ -875,6 +971,7 @@ ipcMain.handle("spellcheck:is-custom-word", async (_, payload) => {
 app.whenReady().then(() => {
   loadSensitiveLog();
   loadJobs();
+  loadRecentPdfs();
   createWindow();
   createMenu();
   startAutosave();

@@ -60,7 +60,10 @@ async function openPdfFromUi(app, page) {
   await page.waitForFunction(
     () =>
       Array.isArray(window.__maniStatusHistory) &&
-      window.__maniStatusHistory.some((m) => String(m || "").startsWith("Rendu pages")),
+      window.__maniStatusHistory.some((m) => {
+        const s = String(m || "");
+        return /^(Rendu pages|Rendering pages|Renderizando paginas|A renderizar paginas)/i.test(s);
+      }),
     null,
     { timeout: 30000 }
   );
