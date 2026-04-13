@@ -14,14 +14,12 @@
 
   /**
    * @typedef {object} PdfViewerDeps
-   * @property {{ tabs: unknown[], activeTabId: unknown, zoomScale?: number, zoomMode?: string }} state
+   * @property {{ tabs: unknown[], activeTabId: unknown, zoomScale?: number }} state
    * @property {PdfLayerRef} layerRef
    * @property {HTMLElement | null} viewer
    * @property {HTMLElement | null} pagesContainer
    * @property {HTMLElement | null} pageInfo
    * @property {HTMLElement | null} zoomInfo
-   * @property {HTMLElement | null} fitWidthBtn
-   * @property {HTMLElement | null} fitPageBtn
    * @property {HTMLElement | null} zoomOutBtn
    * @property {HTMLElement | null} zoomInBtn
    * @property {() => unknown | null} getActiveTab
@@ -148,13 +146,6 @@
     const d = requireDeps();
     const next = (d.state.zoomScale || 1) * (direction > 0 ? step : 1 / step);
     setZoomScale(next, "ctrl+wheel");
-  }
-
-  function setZoomMode(mode) {
-    const d = requireDeps();
-    const { t, setStatus } = d;
-    d.state.zoomMode = mode === "page-fit" ? "page-fit" : "page-width";
-    setStatus(d.state.zoomMode === "page-fit" ? t("stZoomFitPage") : t("stZoomFitWidth"));
   }
 
   function base64ToUint8Array(base64) {
@@ -471,9 +462,7 @@
 
   function wireZoomButtons() {
     const d = requireDeps();
-    const { fitWidthBtn, fitPageBtn, zoomOutBtn, zoomInBtn, state } = d;
-    fitWidthBtn?.addEventListener?.("click", () => setZoomMode("page-width"));
-    fitPageBtn?.addEventListener?.("click", () => setZoomMode("page-fit"));
+    const { zoomOutBtn, zoomInBtn, state } = d;
     zoomOutBtn?.addEventListener?.("click", () =>
       setZoomScale((state.zoomScale || 1) / 1.1, "btn-")
     );
@@ -491,7 +480,6 @@
     updateViewer,
     setActivePage,
     setZoomScale,
-    setZoomMode,
     updateZoomUI,
     zoomByWheelDelta
   };

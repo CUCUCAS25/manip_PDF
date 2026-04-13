@@ -158,8 +158,6 @@ const blankAddImageBtn = document.getElementById("blankAddImageBtn");
 const compressBtn = document.getElementById("compressBtn");
 const protectBtn = document.getElementById("protectBtn");
 const unprotectBtn = document.getElementById("unprotectBtn");
-const fitWidthBtn = document.getElementById("fitWidthBtn");
-const fitPageBtn = document.getElementById("fitPageBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
 const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomInfo = document.getElementById("zoomInfo");
@@ -201,6 +199,7 @@ const sessionLogBody = document.getElementById("sessionLogBody");
 const sessionLogCloseBtn = document.getElementById("sessionLogCloseBtn");
 const sessionLogTitleEl = document.getElementById("sessionLogTitleEl");
 const sessionLogHint = document.getElementById("sessionLogHint");
+const welcomeOpenPdfBtn = document.getElementById("welcomeOpenPdfBtn");
 const toolbarOpenPdfBtn = document.getElementById("toolbarOpenPdfBtn");
 const toolbarSaveAsBtn = document.getElementById("toolbarSaveAsBtn");
 const toolbarQuitBtn = document.getElementById("toolbarQuitBtn");
@@ -232,7 +231,6 @@ const state = {
   activeTabId: null,
   selectedAnnotationId: null,
   editingAnnotationId: null,
-  zoomMode: "page-width",
   zoomScale: 1,
   language: "fr",
   // E7: tracking simple du "risque de perte" (modifs non sauvegardées).
@@ -1861,8 +1859,6 @@ pdfv.bind({
   pagesContainer,
   pageInfo,
   zoomInfo,
-  fitWidthBtn,
-  fitPageBtn,
   zoomOutBtn,
   zoomInBtn,
   getActiveTab,
@@ -2362,6 +2358,7 @@ chrome.bind({
   toolbarFileBtn,
   toolbarFileMenu,
   toolbarOptionsMenu,
+  welcomeOpenPdfBtn,
   toolbarOpenPdfBtn,
   toolbarSaveAsBtn,
   toolbarQuitBtn,
@@ -2407,8 +2404,6 @@ i18nApply.bind({
   deleteSelectedBtn,
   undoBtn,
   redoBtn,
-  fitWidthBtn,
-  fitPageBtn,
   applyPropsBtn,
   validateTextColorBtn,
   applyBgBtn,

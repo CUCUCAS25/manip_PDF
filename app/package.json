@@ -46,13 +46,14 @@
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.1",
     "globals": "^17.4.0",
-    "png-to-ico": "^2.1.8",
-    "prettier": "^3.5.3"
+    "prettier": "^3.5.3",
+    "rcedit": "^5.0.2"
   },
   "build": {
     "appId": "com.manipdf.local",
     "productName": "EditraDoc",
     "icon": "build-resources/icon.ico",
+    "afterPack": "scripts/afterPack-set-win-icon.cjs",
     "asar": true,
     "asarUnpack": ["python/**/*"],
     "files": [

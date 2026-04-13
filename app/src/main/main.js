@@ -35,6 +35,18 @@ function getApplicationRoot() {
 /**
  * Lance le service PDF : Python système en dev, runtime embarqué Windows (`python-runtime`) en prod si présent.
  */
+/**
+ * Icône fenêtre : .ico Windows (raccourci barre titre / bureau). Fallback PNG historique.
+ */
+function getWindowIconPath() {
+  const base = app.getAppPath();
+  const ico = path.join(base, "public", "editraDoc.ico");
+  if (fs.existsSync(ico)) return ico;
+  const png = path.join(base, "public", "miniature_fond_blanc.png");
+  if (fs.existsSync(png)) return png;
+  return undefined;
+}
+
 function getPythonLaunchConfig() {
   const appRoot = getApplicationRoot();
   const pyDir = path.join(appRoot, "python");
@@ -261,11 +273,12 @@ function createWindow() {
   } catch {
     /* ignore */
   }
+  const windowIcon = getWindowIconPath();
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false,
-    icon: path.join(app.getAppPath(), "public", "miniature_fond_blanc.png"),
+    ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

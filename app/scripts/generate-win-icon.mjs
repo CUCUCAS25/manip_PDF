@@ -1,30 +1,42 @@
 /**
- * Génère un .ico Windows à partir du PNG source (miniature_fond_blanc.png).
- * electron-builder préfère un .ico pour l'exécutable / installateur sous Windows.
+ * Copie public/editraDoc.ico (racine du dépôt) vers build-resources/icon.ico et app/public/
+ * pour electron-builder (exe, installateur NSIS, raccourcis) et BrowserWindow sous Windows.
  */
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import pngToIco from "png-to-ico";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.join(__dirname, "..");
-
-const srcPng = path.join(appDir, "public", "miniature_fond_blanc.png");
+const repoRoot = path.join(appDir, "..");
+const srcIco = path.join(repoRoot, "public", "editraDoc.ico");
+const srcLogoPng = path.join(repoRoot, "public", "logo.png");
 const outDir = path.join(appDir, "build-resources");
 const outIco = path.join(outDir, "icon.ico");
+const packagedPublicIco = path.join(appDir, "public", "editraDoc.ico");
+const packagedLogoPng = path.join(appDir, "public", "logo.png");
 
 function fail(msg) {
-  console.error("[generate-win-icon]", msg);
+  console.error("[prepare-win-icon]", msg);
   process.exit(1);
 }
 
-if (!fs.existsSync(srcPng)) {
-  fail(`PNG introuvable: ${srcPng}`);
+if (!fs.existsSync(srcIco)) {
+  fail(`Fichier introuvable: ${srcIco} (placez editraDoc.ico dans public/ à la racine du dépôt).`);
 }
+
 fs.mkdirSync(outDir, { recursive: true });
+fs.mkdirSync(path.dirname(packagedPublicIco), { recursive: true });
+fs.copyFileSync(srcIco, outIco);
+fs.copyFileSync(srcIco, packagedPublicIco);
 
-const buf = await pngToIco(srcPng);
-fs.writeFileSync(outIco, buf);
-console.log(`[generate-win-icon] OK: ${path.relative(appDir, outIco)}`);
+// Bonus: synchronise aussi le logo UI si présent (pour que l'app packagée reprenne le dernier fichier racine).
+if (fs.existsSync(srcLogoPng)) {
+  fs.copyFileSync(srcLogoPng, packagedLogoPng);
+}
 
+console.log(
+  `[prepare-win-icon] OK: ${path.relative(appDir, outIco)} + ${path.relative(appDir, packagedPublicIco)}${
+    fs.existsSync(srcLogoPng) ? ` + ${path.relative(appDir, packagedLogoPng)}` : ""
+  }`
+);

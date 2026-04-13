@@ -18,6 +18,7 @@
    * @property {HTMLElement | null} toolbarFileBtn
    * @property {HTMLElement | null} toolbarFileMenu
    * @property {HTMLElement | null} toolbarOptionsMenu
+   * @property {HTMLElement | null} welcomeOpenPdfBtn
    * @property {HTMLElement | null} toolbarOpenPdfBtn
    * @property {HTMLElement | null} toolbarSaveAsBtn
    * @property {HTMLElement | null} toolbarQuitBtn
@@ -456,11 +457,13 @@
       e.stopPropagation();
       toggleToolbarOptionsMenu();
     });
-    d0.toolbarOpenPdfBtn?.addEventListener?.("click", (e) => {
+    const openPdfFromUi = (e) => {
       e.preventDefault();
       closeAllFlyoutMenus();
       void d0.promptOpenPdf();
-    });
+    };
+    d0.welcomeOpenPdfBtn?.addEventListener?.("click", openPdfFromUi);
+    d0.toolbarOpenPdfBtn?.addEventListener?.("click", openPdfFromUi);
     d0.toolbarSaveAsBtn?.addEventListener?.("click", (e) => {
       e.preventDefault();
       closeAllFlyoutMenus();

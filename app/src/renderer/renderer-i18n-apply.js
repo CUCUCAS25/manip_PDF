@@ -48,6 +48,7 @@
 
   const TOOLTIP_BY_ELEMENT_ID = {
     toolbarFileBtn: "ttToolbarFile",
+    welcomeOpenPdfBtn: "ttToolbarOpenPdf",
     toolbarOpenPdfBtn: "ttToolbarOpenPdf",
     toolbarSaveAsBtn: "ttToolbarSaveAs",
     toolbarQuitBtn: "ttToolbarQuit",
@@ -67,8 +68,6 @@
     deleteSelectedBtn: "ttDelete",
     undoBtn: "ttUndo",
     redoBtn: "ttRedo",
-    fitWidthBtn: "ttFitWidth",
-    fitPageBtn: "ttFitPage",
     validateTextColorBtn: "ttValidateTextColor",
     applyBgBtn: "ttValidateBg",
     applyPropsBtn: "ttApplyProps",
@@ -161,8 +160,6 @@
       deleteSelectedBtn,
       undoBtn,
       redoBtn,
-      fitWidthBtn,
-      fitPageBtn,
       applyPropsBtn,
       validateTextColorBtn,
       applyBgBtn,
@@ -214,8 +211,6 @@
     deleteSelectedBtn.textContent = t("del");
     undoBtn.textContent = t("undo");
     redoBtn.textContent = t("redo");
-    fitWidthBtn.textContent = t("fitW");
-    fitPageBtn.textContent = t("fitP");
     applyPropsBtn.textContent = t("apply");
     if (validateTextColorBtn) validateTextColorBtn.textContent = t("validate");
     if (applyBgBtn) applyBgBtn.textContent = t("validate");
@@ -266,6 +261,8 @@
       if (wt) wt.textContent = t("welcomeTitle");
       const wsub = document.getElementById("welcomeSubtitle");
       if (wsub) wsub.innerHTML = t("welcomeSubtitleHtml");
+      const wOpen = document.getElementById("welcomeOpenPdfBtn");
+      if (wOpen) wOpen.textContent = t("openPdf");
     } catch {
       /* ignore */
     }

@@ -237,17 +237,29 @@ body {
 }
 
 .welcome-card p {
-  margin: 0 0 18px 0;
+  margin: 0 0 14px 0;
   color: #334;
 }
 
-.welcome-card button {
+.welcome-open-pdf-btn {
   border: 1px solid #007acc;
   background: #007acc;
   color: #fff;
-  border-radius: 8px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 12px 20px;
   cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.welcome-open-pdf-btn:hover {
+  background: #0062a3;
+  border-color: #0062a3;
+}
+
+.welcome-open-pdf-btn:focus-visible {
+  outline: 2px solid #007acc;
+  outline-offset: 3px;
 }
 
 header {
@@ -385,7 +397,7 @@ h1 {
   display: none;
 }
 
-/* Ligne 2 header : ajustement PDF + panneaux propriétés (évite saut de focus) */
+/* Ligne 2 header : panneaux propriétés (évite saut de focus) */
 .header-toolbar-secondary {
   display: flex;
   flex-wrap: wrap;
@@ -404,10 +416,6 @@ h1 {
   border-top: none;
   flex: 1 1 280px;
   min-width: 0;
-}
-
-.toolbar-zoom-fit-group {
-  flex: 0 0 auto;
 }
 
 /* Modal journal de session (Options) */

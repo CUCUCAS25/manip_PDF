@@ -14,12 +14,13 @@
   <body>
     <section id="welcomeScreen" class="welcome-screen">
       <div class="welcome-card">
-        <img id="welcomeLogo" class="welcome-logo" src="../../public/miniature_no_bg.png" alt="EditraDoc" />
+        <img id="welcomeLogo" class="welcome-logo" src="../../public/logo.png" alt="EditraDoc" />
         <h2 id="welcomeTitle">Bienvenue dans EditraDoc</h2>
         <p id="welcomeSubtitle">
-          Ouvre un PDF via la barre <strong>Fichier</strong> (visible en plein écran, ou avec <strong>F10</strong>) ou le menu
-          <strong>Fichier &gt; Ouvrir PDF</strong> pour commencer.
+          Ouvre un PDF via la barre <strong>Fichier</strong> (visible en plein écran, ou avec <strong>F10</strong>), ou choisis un
+          fichier avec le bouton ci-dessous.
         </p>
+        <button type="button" id="welcomeOpenPdfBtn" class="welcome-open-pdf-btn" data-tooltip="Ouvre un fichier PDF."></button>
       </div>
     </section>
     <div id="appToolbar" class="app-toolbar hidden" role="navigation" aria-label="Barre d'outils application">
@@ -117,7 +118,7 @@
     <header>
       <div class="header-title-row">
         <div class="app-title-left">
-          <img id="appLogo" class="app-logo" src="../../public/miniature_no_bg.png" alt="EditraDoc" />
+          <img id="appLogo" class="app-logo" src="../../public/logo.png" alt="EditraDoc" />
           <h1 id="appTitle">EditraDoc</h1>
         </div>
         <span id="toolbarF10Hint" class="header-f10-hint" role="note"></span>
@@ -134,10 +135,6 @@
         </div>
       </div>
       <div class="header-toolbar-secondary" aria-label="Affichage et proprietes">
-        <div class="actions-group toolbar-zoom-fit-group" aria-label="Affichage">
-          <button id="fitWidthBtn" data-tooltip="Ajuste le PDF a la largeur de la fenetre.">↔️ Fit largeur</button>
-          <button id="fitPageBtn" data-tooltip="Ajuste le PDF entier dans la fenetre.">🗐 Fit page</button>
-        </div>
         <div id="textPropsPanel" class="text-props-panel hidden" aria-label="Propriétés du champ texte sélectionné">
         <div class="color-row">
           <label class="color-field" id="propTextColorLabel"
