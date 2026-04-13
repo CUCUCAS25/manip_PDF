@@ -22,7 +22,8 @@
     "build": "electron-builder --dir",
     "dist": "electron-builder",
     "bundle:python-win": "powershell -ExecutionPolicy Bypass -File scripts/bundle-python-embed-win.ps1",
-    "dist:win": "npm run bundle:python-win && electron-builder --win && node scripts/copy-installer-to-root.mjs"
+    "prepare:win-icon": "node scripts/generate-win-icon.mjs",
+    "dist:win": "npm run prepare:win-icon && npm run bundle:python-win && electron-builder --win && node scripts/copy-installer-to-root.mjs"
   },
   "c8": {
     "all": true,
@@ -45,11 +46,13 @@
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.1",
     "globals": "^17.4.0",
+    "png-to-ico": "^2.1.8",
     "prettier": "^3.5.3"
   },
   "build": {
     "appId": "com.manipdf.local",
-    "productName": "Editify",
+    "productName": "EditraDoc",
+    "icon": "build-resources/icon.ico",
     "asar": true,
     "asarUnpack": ["python/**/*"],
     "files": [
@@ -62,6 +65,7 @@
       "buildResources": "build-resources"
     },
     "win": {
+      "icon": "build-resources/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -84,7 +88,10 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "perMachine": false,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "installerHeaderIcon": "build-resources/icon.ico"
     },
     "linux": {
       "target": "AppImage"

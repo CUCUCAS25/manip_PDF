@@ -68,7 +68,7 @@ async function showHtmlToolbar(app, page) {
 test("i18n: écran d’accueil + colonnes + tooltips (EN)", async () => {
   const { app, page } = await launchApp();
   await page.evaluate(() => window.__maniE2E.setLanguage("en"));
-  await expect(page.locator("#welcomeTitle")).toHaveText("Welcome to Editify");
+  await expect(page.locator("#welcomeTitle")).toHaveText("Welcome to EditraDoc");
   await expect(page.locator("#welcomeSubtitle")).toContainText("File");
   await expect(page.locator("#thumbsTitle")).toHaveText("Thumbnails");
   await expect(page.locator("#changesTitle")).toHaveText("Changes");

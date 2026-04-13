@@ -99,7 +99,7 @@ expect.extend({
 
 test("app boots and shows title", async () => {
   const { app, page } = await launchApp();
-  await expect(page.locator("h1")).toHaveText("Editify");
+  await expect(page.locator("h1")).toHaveText("EditraDoc");
   await app.close();
 });
 

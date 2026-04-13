@@ -1,4 +1,4 @@
-# Editify
+# EditraDoc
 
 Application de bureau **local-first** pour manipuler des fichiers PDF **sans jamais les envoyer sur un service externe**.
 
@@ -6,7 +6,7 @@ Application de bureau **local-first** pour manipuler des fichiers PDF **sans jam
 
 ## Présentation
 
-**Editify** est un outil de manipulation de PDF orienté **confidentialité** et **simplicité** : les fichiers restent sur le poste, le rendu et les interactions passent par une fenêtre Electron et des processus locaux.
+**EditraDoc** est un outil de manipulation de PDF orienté **confidentialité** et **simplicité** : les fichiers restent sur le poste, le rendu et les interactions passent par une fenêtre Electron et des processus locaux.
 
 **Problème adressé** : de nombreux services en ligne imposent l’**envoi** des PDF sur des serveurs tiers pour fusionner, diviser ou compresser. Cela peut être incompatible avec des contraintes de confidentialité ou de politique interne.
 
@@ -16,7 +16,7 @@ Application de bureau **local-first** pour manipuler des fichiers PDF **sans jam
 
 ## Positionnement
 
-Editify adopte une approche **local-first** :
+EditraDoc adopte une approche **local-first** :
 
 - les fichiers sont traités sur la machine de l’utilisateur
 - aucune dépendance à un service cloud n’est requise pour les opérations PDF
@@ -30,7 +30,7 @@ Ce choix vise à réduire l’exposition des données et à simplifier l’usage
 
 Beaucoup d’outils PDF accessibles via navigateur reposent sur le **téléversement** du document vers une infrastructure distante. Même lorsque ces services sont légitimes, cela crée une **dépendance au réseau** et une **prise de risque** au regard de la circulation des fichiers.
 
-Editify adopte une approche **local-first** : le traitement des opérations PDF côté backend passe par un service HTTP **127.0.0.1:8765** lancé avec l’application, et non par un API tiers. Cela ne remplace pas une analyse juridique ou une certification : c’est un choix d’architecture et de périmètre technique.
+EditraDoc adopte une approche **local-first** : le traitement des opérations PDF côté backend passe par un service HTTP **127.0.0.1:8765** lancé avec l’application, et non par un API tiers. Cela ne remplace pas une analyse juridique ou une certification : c’est un choix d’architecture et de périmètre technique.
 
 ---
 
@@ -174,14 +174,14 @@ Aucune ligne de commande n’est nécessaire pour **installer** le produit : tou
 
 | Emplacement | Quand |
 |-------------|--------|
-| **`Editify-Setup.exe` à la racine du dépôt** (même dossier que ce fichier `README.md`) | Après une **build Windows** du projet : ce fichier est **créé automatiquement** à cet endroit quand un développeur exécute `npm run dist:win` dans `app/` (voir section développement). C’est le fichier à **double-cliquer** pour lancer l’installation. |
-| **Releases** ou **Actions → artefacts** sur GitHub | Pour les utilisateurs qui **téléchargent** le projet depuis GitHub sans compiler : récupérer le même binaire depuis l’onglet **Releases** (fichier joint à la version) ou l’artefact **`editify-windows-setup`** après une exécution du workflow **Release Windows installer**. Vous pouvez enregistrer ce fichier sous le nom **`Editify-Setup.exe`** et le placer où vous voulez, ou le lancer directement depuis le dossier Téléchargements. |
+| **`EditraDoc-Setup.exe` à la racine du dépôt** (même dossier que ce fichier `README.md`) | Après une **build Windows** du projet : ce fichier est **créé automatiquement** à cet endroit quand un développeur exécute `npm run dist:win` dans `app/` (voir section développement). C’est le fichier à **double-cliquer** pour lancer l’installation. |
+| **Releases** ou **Actions → artefacts** sur GitHub | Pour les utilisateurs qui **téléchargent** le projet depuis GitHub sans compiler : récupérer le même binaire depuis l’onglet **Releases** (fichier joint à la version) ou l’artefact **`editify-windows-setup`** après une exécution du workflow **Release Windows installer**. Vous pouvez enregistrer ce fichier sous le nom **`EditraDoc-Setup.exe`** et le placer où vous voulez, ou le lancer directement depuis le dossier Téléchargements. |
 
-Une fois le **`.exe`** obtenu (racine du dépôt après build, ou téléchargement) : **double-cliquer**, suivre l’assistant (dossier d’installation, raccourcis), puis ouvrir **Editify** depuis le menu Démarrer ou le bureau. **Aucun Node.js ni Python à installer à la main** sur le PC cible.
+Une fois le **`.exe`** obtenu (racine du dépôt après build, ou téléchargement) : **double-cliquer**, suivre l’assistant (dossier d’installation, raccourcis), puis ouvrir **EditraDoc** depuis le menu Démarrer ou le bureau. **Aucun Node.js ni Python à installer à la main** sur le PC cible.
 
-> **Note :** `Editify-Setup.exe` à la racine est **généré localement** par la build ; il n’est en général **pas** versionné dans Git (fichier volumineux, entrée dans `.gitignore`). S’il est absent, soit lancer une build (`npm run dist:win` dans `app/`), soit télécharger l’installateur depuis **Releases** / **Actions** comme ci-dessus.
+> **Note :** `EditraDoc-Setup.exe` à la racine est **généré localement** par la build ; il n’est en général **pas** versionné dans Git (fichier volumineux, entrée dans `.gitignore`). S’il est absent, soit lancer une build (`npm run dist:win` dans `app/`), soit télécharger l’installateur depuis **Releases** / **Actions** comme ci-dessus.
 
-Les **Releases** sont alimentées par le workflow GitHub Actions **Release Windows installer** (`.github/workflows/release-windows.yml`) : sur un tag **`v1.0.0`**, l’installateur est joint à la release ; une exécution manuelle du workflow dépose aussi l’artefact **`editify-windows-setup`** (contenu : **`Editify-Setup.exe`**).
+Les **Releases** sont alimentées par le workflow GitHub Actions **Release Windows installer** (`.github/workflows/release-windows.yml`) : sur un tag **`v1.0.0`**, l’installateur est joint à la release ; une exécution manuelle du workflow dépose aussi l’artefact **`editify-windows-setup`** (contenu : **`EditraDoc-Setup.exe`**).
 
 ---
 
@@ -229,7 +229,7 @@ npm install
 npm run dist:win
 ```
 
-L’installeur NSIS est généré dans **`app/dist/`**, puis **copié à la racine du dépôt** sous le nom fixe **`Editify-Setup.exe`** (script `app/scripts/copy-installer-to-root.mjs`). Équivalent depuis la racine du dépôt : `npm run dist:win`.
+L’installeur NSIS est généré dans **`app/dist/`**, puis **copié à la racine du dépôt** sous le nom fixe **`EditraDoc-Setup.exe`** (script `app/scripts/copy-installer-to-root.mjs`). Équivalent depuis la racine du dépôt : `npm run dist:win`.
 
 Les autres plateformes (`npm run dist` : AppImage, dmg, etc.) s’appuient pour l’instant sur un **Python système** sur la machine cible ; seul le flux **Windows** embarque le runtime Python via `bundle-python-win`.
 

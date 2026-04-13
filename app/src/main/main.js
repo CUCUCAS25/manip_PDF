@@ -26,7 +26,8 @@ let pythonProcess = null;
  */
 function getApplicationRoot() {
   if (!app.isPackaged) {
-    return path.join(__dirname, "..", "..");
+    // __dirname = app/src/main -> racine app = ../../../
+    return path.join(__dirname, "..", "..", "..");
   }
   return path.join(process.resourcesPath, "app.asar.unpacked");
 }
@@ -202,7 +203,7 @@ function broadcastFullscreenState() {
 function createWindow() {
   const startMaximized = !process.env.MANI_PDF_E2E;
   try {
-    app.setName("Editify");
+    app.setName("EditraDoc");
   } catch {
     /* ignore */
   }
@@ -210,7 +211,7 @@ function createWindow() {
     width: 1280,
     height: 800,
     show: false,
-    icon: path.join(app.getAppPath(), "..", "public", "miniature.png"),
+    icon: path.join(app.getAppPath(), "public", "miniature_fond_blanc.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

@@ -1,5 +1,5 @@
 /**
- * Renderer principal - Editify (Electron, pas Node).
+ * Renderer principal - EditraDoc (Electron, pas Node).
  *
  * Architecture:
  * - Un fichier par rôle historique: état UI (`state`), rendu PDF (pdf.js via bridge), calque d'annotations HTML,
